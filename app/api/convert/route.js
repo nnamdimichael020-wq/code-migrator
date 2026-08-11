@@ -1,9 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { NextResponse } from "next/server";
 
-// Initialize official Google Gen AI SDK
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
 export async function POST(request) {
   try {
     const { sourceLang, targetLang, code } = await request.json();
@@ -11,6 +8,17 @@ export async function POST(request) {
     if (!code || !sourceLang || !targetLang) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
+
+    // Initialize SDK INSIDE the request handler so process.env is populated
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json(
+        { error: "GEMINI_API_KEY environment variable is not defined on the server." },
+        { status: 500 }
+      );
+    }
+
+    const ai = new GoogleGenAI({ apiKey });
 
     const systemPrompt = `You are an expert compiler and code migration software. 
 Convert the provided code snippet from ${sourceLang} to ${targetLang}.
@@ -36,7 +44,7 @@ Return strictly a valid JSON object matching this schema without markdown fences
   } catch (error) {
     console.error("Migration Error:", error);
     return NextResponse.json(
-      { error: "Failed to convert code. Check API key or query." },
+      { error: error.message || "Failed to convert code." },
       { status: 500 }
     );
   }
