@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { NextResponse } from "next/server";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 export async function POST(request) {
   try {
@@ -9,11 +10,20 @@ export async function POST(request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // Initialize SDK INSIDE the request handler so process.env is populated
-    const apiKey = process.env.GEMINI_API_KEY;
+    // Attempt to read the API key from both Cloudflare context and process.env
+    let apiKey = process.env.GEMINI_API_KEY;
+    try {
+      const { env } = getCloudflareContext();
+      if (env && env.GEMINI_API_KEY) {
+        apiKey = env.GEMINI_API_KEY;
+      }
+    } catch (e) {
+      // Fallback if not running in Cloudflare context
+    }
+
     if (!apiKey) {
       return NextResponse.json(
-        { error: "GEMINI_API_KEY environment variable is not defined on the server." },
+        { error: "GEMINI_API_KEY is missing. Please set it in Cloudflare Settings -> Variables and secrets." },
         { status: 500 }
       );
     }
@@ -44,7 +54,7 @@ Return strictly a valid JSON object matching this schema without markdown fences
   } catch (error) {
     console.error("Migration Error:", error);
     return NextResponse.json(
-      { error: error.message || "Failed to convert code." },
+      { error: error?.message || error?.toString() || "Unknown server error during conversion." },
       { status: 500 }
     );
   }
