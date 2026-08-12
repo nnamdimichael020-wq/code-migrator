@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { getCloudflareContext } from "@opennextjs/cloudflare";
 
 export async function POST(request) {
   try {
@@ -9,20 +8,11 @@ export async function POST(request) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
     }
 
-    // Safely extract API key from Cloudflare env context or process.env
-    let apiKey = process.env.GEMINI_API_KEY;
-    try {
-      const ctx = getCloudflareContext();
-      if (ctx?.env?.GEMINI_API_KEY) {
-        apiKey = ctx.env.GEMINI_API_KEY;
-      }
-    } catch (e) {
-      // Fallback to process.env if context isn't ready
-    }
+    const apiKey = process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: "GEMINI_API_KEY is not defined. Add it to Cloudflare Build variables." },
+        { error: "GEMINI_API_KEY is not defined on the server." },
         { status: 500 }
       );
     }
@@ -35,7 +25,6 @@ Return strictly a valid JSON object matching this schema without markdown fences
   "explanation": ["Key change 1", "Key change 2", "Caveat or optimization note"]
 }`;
 
-    // Direct HTTP request to Google Gemini API (No SDK dependency)
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
 
     const apiResponse = await fetch(geminiUrl, {
@@ -66,7 +55,6 @@ Return strictly a valid JSON object matching this schema without markdown fences
       );
     }
 
-    // Parse the generated text output from Gemini
     const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!rawText) {
       return NextResponse.json({ error: "No response text received from Gemini." }, { status: 500 });
