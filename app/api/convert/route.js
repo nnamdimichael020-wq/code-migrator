@@ -1,3 +1,4 @@
+import { GoogleGenAI } from "@google/genai";
 import { NextResponse } from "next/server";
 
 export async function POST(request) {
@@ -12,10 +13,13 @@ export async function POST(request) {
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: "GEMINI_API_KEY is not defined on the server." },
+        { error: "GEMINI_API_KEY is not defined. Please set it in Cloudflare Settings." },
         { status: 500 }
       );
     }
+
+    // Initialize the official Google Gen AI SDK
+    const ai = new GoogleGenAI({ apiKey });
 
     const systemPrompt = `You are an expert compiler and code migration software. 
 Convert the provided code snippet from ${sourceLang} to ${targetLang}.
@@ -25,48 +29,29 @@ Return strictly a valid JSON object matching this schema without markdown fences
   "explanation": ["Key change 1", "Key change 2", "Caveat or optimization note"]
 }`;
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${apiKey}`;
-
-    const apiResponse = await fetch(geminiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: `${systemPrompt}\n\nCode to convert:\n${code}` }
-            ]
-          }
-        ],
-        generationConfig: {
-          responseMimeType: "application/json"
-        }
-      })
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [
+        { role: "user", parts: [{ text: `${systemPrompt}\n\nCode to convert:\n${code}` }] }
+      ],
+      config: {
+        responseMimeType: "application/json"
+      }
     });
 
-    const data = await apiResponse.json();
-
-    if (!apiResponse.ok) {
-      return NextResponse.json(
-        { error: data.error?.message || "Google API request failed." },
-        { status: apiResponse.status }
-      );
+    // Extract text safely using the SDK helper
+    const textOutput = response.text;
+    if (!textOutput) {
+      return NextResponse.json({ error: "No response text received from Gemini API." }, { status: 500 });
     }
 
-    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!rawText) {
-      return NextResponse.json({ error: "No response text received from Gemini." }, { status: 500 });
-    }
-
-    const parsedResult = JSON.parse(rawText);
+    const parsedResult = JSON.parse(textOutput);
     return NextResponse.json(parsedResult);
 
   } catch (error) {
     console.error("Migration Error:", error);
     return NextResponse.json(
-      { error: error?.message || "Internal server error." },
+      { error: error?.message || "Internal server error during conversion." },
       { status: 500 }
     );
   }
