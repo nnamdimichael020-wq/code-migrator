@@ -219,13 +219,16 @@ export default function Home() {
               </ul>
             </div>
             {/* Replace href with your actual Stripe or LemonSqueezy Checkout URL */}
-            <a
-              href="https://lemonsqueezy.com" 
-              target="_blank"
-              className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-lg w-full block transition"
+                        <button
+              type="button"
+              disabled
+              className="bg-slate-700 text-slate-300 font-semibold py-2.5 rounded-lg w-full cursor-not-allowed"
             >
-              Get Unlimited Pro
-            </a>
+              Pro checkout coming soon
+            </button>
+            <p className="text-xs text-slate-500">
+              This is a free public beta. Payments are not live yet.
+            </p>
             <button
               onClick={() => setShowPaywall(false)}
               className="text-xs text-slate-500 hover:text-slate-400 mt-1"
