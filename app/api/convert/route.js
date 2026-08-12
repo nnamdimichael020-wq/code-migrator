@@ -13,12 +13,11 @@ export async function POST(request) {
 
     if (!apiKey) {
       return NextResponse.json(
-        { error: "GEMINI_API_KEY is not defined. Please set it in Cloudflare Settings." },
+        { error: "GEMINI_API_KEY is missing. Please check Cloudflare environment variables." },
         { status: 500 }
       );
     }
 
-    // Initialize the official Google Gen AI SDK
     const ai = new GoogleGenAI({ apiKey });
 
     const systemPrompt = `You are an expert compiler and code migration software. 
@@ -39,7 +38,6 @@ Return strictly a valid JSON object matching this schema without markdown fences
       }
     });
 
-    // Extract text safely using the SDK helper
     const textOutput = response.text;
     if (!textOutput) {
       return NextResponse.json({ error: "No response text received from Gemini API." }, { status: 500 });
