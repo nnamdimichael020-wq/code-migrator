@@ -25,7 +25,7 @@ Return strictly a valid JSON object matching this schema without markdown fences
   "explanation": ["Key change 1", "Key change 2", "Caveat or optimization note"]
 }`;
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
     const apiResponse = await fetch(geminiUrl, {
       method: "POST",
