@@ -65,7 +65,7 @@ export default function Home() {
       localStorage.setItem("code_migrator_usage", JSON.stringify({ date: today, count: newCount }));
 
     } catch (err) {
-      alert("Error generating conversion. Please try again.");
+      alert(err.message || "Error generating conversion. Please try again.");
     } finally {
       setLoading(false);
     }
