@@ -4,6 +4,20 @@ const DAILY_LIMIT = 3;
 const FREE_MAX_LINES = 200;
 const FREE_MAX_CHARS = 12000;
 const MODELS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"];
+const ALLOWED_LANGUAGES = [
+  "PostgreSQL",
+  "Oracle SQL",
+  "Snowflake SQL",
+  "Google BigQuery",
+  "MySQL",
+  "Python",
+  "JavaScript / Node.js",
+  "TypeScript",
+  "Excel VBA",
+  "C#",
+  "Java",
+  "PHP"
+];
 
 function utcDate() {
   return new Date().toISOString().slice(0, 10);
@@ -204,8 +218,12 @@ export async function POST(request) {
   try {
     const { sourceLang, targetLang, code } = await request.json();
 
-    if (!code || !sourceLang || !targetLang) {
+        if (!code || !sourceLang || !targetLang) {
       return jsonWithUsage({ error: "Missing required fields" }, visitor, 400);
+    }
+
+    if (!ALLOWED_LANGUAGES.includes(sourceLang) || !ALLOWED_LANGUAGES.includes(targetLang)) {
+      return jsonWithUsage({ error: "Unsupported language pair." }, visitor, 400);
     }
 
     const lineCount = String(code).split(/\r?\n/).length;
