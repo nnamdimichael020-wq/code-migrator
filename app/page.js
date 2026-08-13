@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Code2, Copy, Check, Sparkles, Zap, Lock } from "lucide-react";
 
 const LANGUAGES = [
@@ -10,6 +10,7 @@ const LANGUAGES = [
 ];
 
 const DAILY_LIMIT = 3;
+const TURNSTILE_SITE_KEY = "0x4AAAAAAEO2i1RSHJtRwNpP";
 
 export default function Home() {
   const [sourceLang, setSourceLang] = useState("Oracle SQL");
@@ -21,9 +22,19 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [remaining, setRemaining] = useState(null);
   const [showPaywall, setShowPaywall] = useState(false);
+  const [turnstileToken, setTurnstileToken] = useState("");
+  const turnstileBox = useRef(null);
+  const turnstileId = useRef(null);
 
   const applyUsage = (data) => {
     if (typeof data?.remaining === "number") setRemaining(data.remaining);
+  };
+
+  const resetTurnstile = () => {
+    setTurnstileToken("");
+    if (window.turnstile && turnstileId.current != null) {
+      window.turnstile.reset(turnstileId.current);
+    }
   };
 
   useEffect(() => {
@@ -35,11 +46,48 @@ export default function Home() {
       .catch(() => setRemaining(DAILY_LIMIT));
   }, []);
 
+  useEffect(() => {
+    const start = () => {
+      if (!window.turnstile || !turnstileBox.current || turnstileId.current != null) return;
+      turnstileId.current = window.turnstile.render(turnstileBox.current, {
+        sitekey: TURNSTILE_SITE_KEY,
+        theme: "dark",
+        callback: (token) => setTurnstileToken(token),
+        "expired-callback": () => setTurnstileToken(""),
+        "error-callback": () => setTurnstileToken("")
+      });
+    };
+
+    if (window.turnstile) {
+      start();
+      return;
+    }
+
+    const existing = document.querySelector("script[data-codeshift-turnstile]");
+    if (existing) {
+      existing.addEventListener("load", start);
+      return () => existing.removeEventListener("load", start);
+    }
+
+    const script = document.createElement("script");
+    script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
+    script.async = true;
+    script.defer = true;
+    script.dataset.codeshiftTurnstile = "1";
+    script.onload = start;
+    document.head.appendChild(script);
+  }, []);
+
   const handleConvert = async () => {
     if (!inputCode.trim()) return;
 
     if (remaining === 0) {
       setShowPaywall(true);
+      return;
+    }
+
+    if (!turnstileToken) {
+      alert("Wait a second for the human check, then try again.");
       return;
     }
 
@@ -52,11 +100,17 @@ export default function Home() {
         method: "POST",
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sourceLang, targetLang, code: inputCode }),
+        body: JSON.stringify({
+          sourceLang,
+          targetLang,
+          code: inputCode,
+          turnstileToken
+        }),
       });
 
       const data = await res.json();
       applyUsage(data);
+      resetTurnstile();
 
       if (data.error === "Daily free limit reached.") {
         setShowPaywall(true);
@@ -151,11 +205,12 @@ export default function Home() {
               placeholder="Paste code or SQL script here..."
               className="flex-1 w-full bg-transparent p-4 font-mono text-sm text-slate-200 resize-none focus:outline-none min-h-[300px]"
             />
-            <div className="p-3 border-t border-slate-800 bg-slate-900 flex justify-end">
+            <div className="p-3 border-t border-slate-800 bg-slate-900 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div ref={turnstileBox} className="min-h-[65px]" />
               <button
                 onClick={handleConvert}
                 disabled={loading || !inputCode.trim() || remaining === null}
-                className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold px-5 py-2 rounded-lg flex items-center gap-2 transition"
+                className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold px-5 py-2 rounded-lg flex items-center justify-center gap-2 transition"
               >
                 {loading ? "Translating..." : "Translate Code"}
                 <Sparkles className="w-4 h-4" />
