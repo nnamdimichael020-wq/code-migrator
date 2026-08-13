@@ -141,7 +141,31 @@ async function bumpUsage(usage) {
   ]);
   return next;
 }
+async function verifyTurnstile(token, ip) {
+  const secret = process.env.TURNSTILE_SECRET_KEY;
+  if (!secret) {
+    return { ok: false, error: "Human check is not configured on the server." };
+  }
+  if (!token || typeof token !== "string") {
+    return { ok: false, error: "Human check missing. Refresh the page and wait a second." };
+  }
 
+  const body = new URLSearchParams();
+  body.set("secret", secret);
+  body.set("response", token);
+  if (ip && ip !== "unknown") body.set("remoteip", ip);
+
+  const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body
+  });
+  const data = await res.json();
+  if (!data?.success) {
+    return { ok: false, error: "Human check failed. Refresh the page and try again." };
+  }
+  return { ok: true };
+}
 function usagePayload(used) {
   const safeUsed = Math.max(0, used);
   return {
@@ -216,7 +240,7 @@ export async function GET(request) {
 export async function POST(request) {
   const visitor = readVisitorId(request);
   try {
-    const { sourceLang, targetLang, code } = await request.json();
+        const { sourceLang, targetLang, code, turnstileToken } = await request.json();
 
         if (!code || !sourceLang || !targetLang) {
       return jsonWithUsage({ error: "Missing required fields" }, visitor, 400);
@@ -225,7 +249,10 @@ export async function POST(request) {
     if (!ALLOWED_LANGUAGES.includes(sourceLang) || !ALLOWED_LANGUAGES.includes(targetLang)) {
       return jsonWithUsage({ error: "Unsupported language pair." }, visitor, 400);
     }
-
+    const human = await verifyTurnstile(turnstileToken, clientIp(request));
+    if (!human.ok) {
+      return jsonWithUsage({ error: human.error }, visitor, 403);
+    }
     const lineCount = String(code).split(/\r?\n/).length;
     if (lineCount > FREE_MAX_LINES || String(code).length > FREE_MAX_CHARS) {
       return jsonWithUsage(
