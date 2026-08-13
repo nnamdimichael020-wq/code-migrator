@@ -202,8 +202,21 @@ export async function POST(request) {
   try {
     const { sourceLang, targetLang, code } = await request.json();
 
-    if (!code || !sourceLang || !targetLang) {
+        if (!code || !sourceLang || !targetLang) {
       return jsonWithUsage({ error: "Missing required fields" }, visitor, 400);
+    }
+
+    const lineCount = String(code).split(/\r?\n/).length;
+    const FREE_MAX_LINES = 200;
+    const FREE_MAX_CHARS = 12000;
+    if (lineCount > FREE_MAX_LINES || String(code).length > FREE_MAX_CHARS) {
+      return jsonWithUsage(
+        {
+          error: `Free beta limit is ${FREE_MAX_LINES} lines (or ${FREE_MAX_CHARS} characters). Your paste has ${lineCount} lines. Split it into smaller pieces.`
+        },
+        visitor,
+        400
+      );
     }
 
     const usage = await loadUsage(request, visitor.id);
@@ -342,10 +355,16 @@ export async function POST(request) {
       lastStatus === 429 ? 503 : lastStatus
     );
   } catch (error) {
-    return jsonWithUsage(
-      { error: error?.message || "Internal server error." },
-      visitor,
-      500
+        const friendlyQuota = /quota|rate.limit|resource exhausted|too many requests|input_token/i.test(
+      lastError
     );
-  }
-}
+    return jsonWithUsage(
+      {
+        error: friendlyQuota
+          ? "The AI free quota is tired or this paste is too large. Wait a minute and try a short snippet (under 200 lines)."
+          : lastError,
+        ...usagePayload(usage.used)
+      },
+      visitor,
+      friendlyQuota ? 503 : lastStatus
+    );
