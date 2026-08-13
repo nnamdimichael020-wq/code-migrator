@@ -24,9 +24,6 @@ export default function Home() {
 
   const applyUsage = (data) => {
     if (typeof data?.remaining === "number") setRemaining(data.remaining);
-    if (typeof data?.remaining === "number" && data.remaining <= 0) {
-      setShowPaywall(true);
-    }
   };
 
   useEffect(() => {
@@ -61,7 +58,7 @@ export default function Home() {
       const data = await res.json();
       applyUsage(data);
 
-      if (res.status === 429) {
+      if (data.error === "Daily free limit reached.") {
         setShowPaywall(true);
         return;
       }
