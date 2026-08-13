@@ -19,29 +19,29 @@ export default function Home() {
   const [explanation, setExplanation] = useState([]);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [used, setUsed] = useState(0);
-  const [remaining, setRemaining] = useState(DAILY_LIMIT);
+  const [remaining, setRemaining] = useState(null);
   const [showPaywall, setShowPaywall] = useState(false);
 
   const applyUsage = (data) => {
-    if (typeof data?.used === "number") setUsed(data.used);
     if (typeof data?.remaining === "number") setRemaining(data.remaining);
-    if ((data?.remaining ?? 1) <= 0) setShowPaywall(true);
+    if (typeof data?.remaining === "number" && data.remaining <= 0) {
+      setShowPaywall(true);
+    }
   };
 
   useEffect(() => {
-    fetch("/api/convert")
+    fetch("/api/convert", { cache: "no-store" })
       .then((res) => res.json())
       .then((data) => {
-        if (!data?.error || data?.configured) applyUsage(data);
+        if (typeof data?.remaining === "number") applyUsage(data);
       })
-      .catch(() => {});
+      .catch(() => setRemaining(DAILY_LIMIT));
   }, []);
 
   const handleConvert = async () => {
     if (!inputCode.trim()) return;
 
-    if (remaining <= 0) {
+    if (remaining === 0) {
       setShowPaywall(true);
       return;
     }
@@ -53,6 +53,7 @@ export default function Home() {
     try {
       const res = await fetch("/api/convert", {
         method: "POST",
+        cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sourceLang, targetLang, code: inputCode }),
       });
@@ -82,6 +83,8 @@ export default function Home() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const remainingLabel = remaining === null ? "…" : `${remaining}/${DAILY_LIMIT} remaining`;
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur px-6 py-4 flex items-center justify-between">
@@ -91,7 +94,7 @@ export default function Home() {
         </div>
         <div className="flex items-center gap-4 text-sm">
           <span className="text-slate-400">
-            Free Daily Uses: <strong className="text-indigo-400">{remaining}/{DAILY_LIMIT} remaining</strong>
+            Free Daily Uses: <strong className="text-indigo-400">{remainingLabel}</strong>
           </span>
           <button
             onClick={() => setShowPaywall(true)}
@@ -154,7 +157,7 @@ export default function Home() {
             <div className="p-3 border-t border-slate-800 bg-slate-900 flex justify-end">
               <button
                 onClick={handleConvert}
-                disabled={loading || !inputCode.trim()}
+                disabled={loading || !inputCode.trim() || remaining === null}
                 className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold px-5 py-2 rounded-lg flex items-center gap-2 transition"
               >
                 {loading ? "Translating..." : "Translate Code"}
