@@ -10,9 +10,30 @@ function utcDate() {
 function clientIp(request) {
   return (
     request.headers.get("cf-connecting-ip") ||
+    request.headers.get("true-client-ip") ||
     (request.headers.get("x-forwarded-for") || "").split(",")[0].trim() ||
     "unknown"
   );
+}
+
+function networkKey(ip) {
+  if (!ip || ip === "unknown") return "unknown";
+  if (ip.includes(":")) {
+    const head = ip.split("::")[0].split(":").filter(Boolean).slice(0, 4).join(":");
+    return `v6:${head || "unknown"}`;
+  }
+  return `v4:${ip}`;
+}
+
+function readVisitorId(request) {
+  const cookie = request.headers.get("cookie") || "";
+  const match = cookie.match(/(?:^|;\s*)cs_vid=([a-zA-Z0-9_-]{16,80})/);
+  if (match) return { id: match[1], isNew: false };
+  return { id: crypto.randomUUID(), isNew: true };
+}
+
+function visitorCookie(id) {
+  return `cs_vid=${id}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax`;
 }
 
 function usageConfig() {
@@ -27,29 +48,30 @@ function usageUrl(config, key) {
   return `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/storage/kv/namespaces/${config.namespaceId}/values/${encodeURIComponent(key)}`;
 }
 
-async function readUsed(request) {
-  const config = usageConfig();
-  if (!config) return { used: 0, configured: false, key: null };
+function jsonWithUsage(body, visitor, status = 200) {
+  const headers = {
+    "Cache-Control": "no-store, max-age=0"
+  };
+  if (visitor.isNew) {
+    headers["Set-Cookie"] = visitorCookie(visitor.id);
+  }
+  return NextResponse.json(body, { status, headers });
+}
 
-  const key = `uses:${utcDate()}:${clientIp(request)}`;
+async function readCount(config, key) {
   const res = await fetch(usageUrl(config, key), {
     headers: { Authorization: `Bearer ${config.token}` }
   });
-
-  if (res.status === 404) return { used: 0, configured: true, key };
+  if (res.status === 404) return 0;
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Usage store read failed (${res.status}): ${text.slice(0, 180)}`);
   }
-
   const used = parseInt(await res.text(), 10);
-  return { used: Number.isFinite(used) ? used : 0, configured: true, key };
+  return Number.isFinite(used) ? used : 0;
 }
 
-async function writeUsed(key, used) {
-  const config = usageConfig();
-  if (!config || !key) return;
-
+async function writeCount(config, key, used) {
   const res = await fetch(`${usageUrl(config, key)}?expiration_ttl=172800`, {
     method: "PUT",
     headers: {
@@ -58,11 +80,50 @@ async function writeUsed(key, used) {
     },
     body: String(used)
   });
-
   if (!res.ok) {
     const text = await res.text();
     throw new Error(`Usage store write failed (${res.status}): ${text.slice(0, 180)}`);
   }
+}
+
+function usageKeys(request, visitorId) {
+  const ip = clientIp(request);
+  const day = utcDate();
+  return {
+    visitor: `${day}:vid:${visitorId}`,
+    ip: `${day}:ip:${ip}`,
+    net: `${day}:net:${networkKey(ip)}`
+  };
+}
+
+async function loadUsage(request, visitorId) {
+  const config = usageConfig();
+  if (!config) return { used: 0, configured: false, keys: null, counts: null, config: null };
+
+  const keys = usageKeys(request, visitorId);
+  const [visitor, ip, net] = await Promise.all([
+    readCount(config, keys.visitor),
+    readCount(config, keys.ip),
+    readCount(config, keys.net)
+  ]);
+
+  return {
+    used: Math.max(visitor, ip, net),
+    counts: { visitor, ip, net },
+    configured: true,
+    keys,
+    config
+  };
+}
+
+async function bumpUsage(usage) {
+  const next = usage.used + 1;
+  await Promise.all([
+    writeCount(usage.config, usage.keys.visitor, Math.max(usage.counts.visitor, next)),
+    writeCount(usage.config, usage.keys.ip, Math.max(usage.counts.ip, next)),
+    writeCount(usage.config, usage.keys.net, Math.max(usage.counts.net, next))
+  ]);
+  return next;
 }
 
 function usagePayload(used) {
@@ -113,61 +174,70 @@ function parseModelJson(raw) {
 }
 
 export async function GET(request) {
+  const visitor = readVisitorId(request);
   try {
-    const usage = await readUsed(request);
+    const usage = await loadUsage(request, visitor.id);
     if (!usage.configured) {
-      return NextResponse.json({
-        ...usagePayload(0),
-        configured: false,
-        error: "Usage store is not configured yet."
-      });
+      return jsonWithUsage(
+        {
+          ...usagePayload(0),
+          configured: false,
+          error: "Usage store is not configured yet."
+        },
+        visitor
+      );
     }
-    return NextResponse.json({ ...usagePayload(usage.used), configured: true });
+    return jsonWithUsage({ ...usagePayload(usage.used), configured: true }, visitor);
   } catch (error) {
-    return NextResponse.json(
+    return jsonWithUsage(
       { error: error?.message || "Could not read usage." },
-      { status: 500 }
+      visitor,
+      500
     );
   }
 }
 
 export async function POST(request) {
+  const visitor = readVisitorId(request);
   try {
     const { sourceLang, targetLang, code } = await request.json();
 
     if (!code || !sourceLang || !targetLang) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+      return jsonWithUsage({ error: "Missing required fields" }, visitor, 400);
     }
 
-    const usage = await readUsed(request);
+    const usage = await loadUsage(request, visitor.id);
     if (!usage.configured) {
-      return NextResponse.json(
+      return jsonWithUsage(
         {
           error:
             "Usage store is not configured. Add CF_ACCOUNT_ID, CF_KV_NAMESPACE_ID, and CF_API_TOKEN in Cloudflare secrets."
         },
-        { status: 500 }
+        visitor,
+        500
       );
     }
 
     if (usage.used >= DAILY_LIMIT) {
-      return NextResponse.json(
+      return jsonWithUsage(
         {
           error: "Daily free limit reached.",
           ...usagePayload(usage.used)
         },
-        { status: 429 }
+        visitor,
+        429
       );
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return NextResponse.json(
+      return jsonWithUsage(
         {
           error:
             "GEMINI_API_KEY is missing. Add it in Cloudflare → Workers & Pages → code-migrator → Settings → Variables and secrets."
         },
-        { status: 500 }
+        visitor,
+        500
       );
     }
 
@@ -226,7 +296,7 @@ export async function POST(request) {
           continue;
         }
 
-        return NextResponse.json({ error: lastError }, { status: lastStatus });
+        return jsonWithUsage({ error: lastError }, visitor, lastStatus);
       }
 
       const rawText = extractText(data);
@@ -250,21 +320,24 @@ export async function POST(request) {
         continue;
       }
 
-      const used = usage.used + 1;
-      await writeUsed(usage.key, used);
+      const used = await bumpUsage(usage);
 
-      return NextResponse.json({
-        convertedCode: parsed.convertedCode,
-        explanation: Array.isArray(parsed.explanation) ? parsed.explanation : [],
-        ...usagePayload(used)
-      });
+      return jsonWithUsage(
+        {
+          convertedCode: parsed.convertedCode,
+          explanation: Array.isArray(parsed.explanation) ? parsed.explanation : [],
+          ...usagePayload(used)
+        },
+        visitor
+      );
     }
 
-    return NextResponse.json({ error: lastError }, { status: lastStatus });
+    return jsonWithUsage({ error: lastError }, visitor, lastStatus);
   } catch (error) {
-    return NextResponse.json(
+    return jsonWithUsage(
       { error: error?.message || "Internal server error." },
-      { status: 500 }
+      visitor,
+      500
     );
   }
 }
