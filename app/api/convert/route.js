@@ -286,17 +286,21 @@ export async function POST(request) {
 
       if (!apiResponse.ok) {
         lastError = data?.error?.message || JSON.stringify(data);
-        lastStatus = apiResponse.status;
+        lastStatus = apiResponse.status === 429 ? 503 : apiResponse.status;
 
         if (
-          /no longer available|not found|not supported|not available to new users|is not available/i.test(
+          /no longer available|not found|not supported|not available to new users|is not available|quota|rate.limit|resource exhausted|too many requests/i.test(
             lastError
           )
         ) {
           continue;
         }
 
-        return jsonWithUsage({ error: lastError }, visitor, lastStatus);
+        return jsonWithUsage(
+          { error: lastError, ...usagePayload(usage.used) },
+          visitor,
+          lastStatus
+        );
       }
 
       const rawText = extractText(data);
@@ -332,7 +336,11 @@ export async function POST(request) {
       );
     }
 
-    return jsonWithUsage({ error: lastError }, visitor, lastStatus);
+    return jsonWithUsage(
+      { error: lastError, ...usagePayload(usage.used) },
+      visitor,
+      lastStatus === 429 ? 503 : lastStatus
+    );
   } catch (error) {
     return jsonWithUsage(
       { error: error?.message || "Internal server error." },
