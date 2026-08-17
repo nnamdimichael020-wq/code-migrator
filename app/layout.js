@@ -8,6 +8,11 @@ export const metadata = {
     template: "%s | CodeShift AI"
   },
   description: "Migrate SQL queries and code dialects instantly using AI.",
+  // Google Search Console ownership proof. This is a public token by design —
+  // it only proves control of the site and grants no access to anything.
+  verification: {
+    google: "KkfmwqlYKdl9P53z7mk5g4bXXGok4gmc8rNe8aDAB0s"
+  },
 };
 export default function RootLayout({ children }) {
   return (
