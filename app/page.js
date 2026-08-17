@@ -71,6 +71,13 @@ export default function Home() {
   // Restore the user's last view choice and their local history.
   useEffect(() => {
     setIsMac(/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || ""));
+    // Preselect the language pair when arriving from a /convert/... guide page,
+    // e.g. /?from=Python&to=JavaScript %2F Node.js
+    const params = new URLSearchParams(window.location.search);
+    const from = params.get("from");
+    const to = params.get("to");
+    if (from && LANGUAGES.includes(from)) setSourceLang(from);
+    if (to && LANGUAGES.includes(to)) setTargetLang(to);
     const prefs = loadPrefs();
     if (prefs.viewMode === "code" || prefs.viewMode === "diff") setViewMode(prefs.viewMode);
     if (typeof prefs.onlyChanges === "boolean") setOnlyChanges(prefs.onlyChanges);
