@@ -348,8 +348,22 @@ export default function Home() {
             Instant SQL & Code Translator
           </h1>
           <p className="mt-2 text-slate-400">
-            Migrate queries, scripts, and legacy code across dialects in seconds.
+            Oracle → Postgres, MySQL → Snowflake, VBA → Python in seconds.
           </p>
+          <ul className="mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs text-slate-400">
+            <li className="flex items-center gap-1.5">
+              <Check className="w-3.5 h-3.5 text-emerald-400" />
+              {DAILY_LIMIT} free conversions a day
+            </li>
+            <li className="flex items-center gap-1.5">
+              <Check className="w-3.5 h-3.5 text-emerald-400" />
+              No signup required
+            </li>
+            <li className="flex items-center gap-1.5">
+              <Check className="w-3.5 h-3.5 text-emerald-400" />
+              Diff view and pitfall warnings
+            </li>
+          </ul>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
           <div className="flex items-center gap-3">
@@ -590,6 +604,71 @@ export default function Home() {
           </div>
         )}
       </main>
+      <section className="max-w-6xl w-full mx-auto px-6 pt-12">
+        <h2 className="text-xl font-bold text-white">Conversion guides</h2>
+        <p className="mt-1 text-sm text-slate-400">
+          Each guide has a syntax mapping table, the traps that change behaviour without
+          throwing an error, and a button that opens this converter with the languages
+          already selected.
+        </p>
+        <div className="mt-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {PAIRS.map((p) => (
+            <Link
+              key={p.slug}
+              href={`/convert/${p.slug}`}
+              className="group bg-slate-900 border border-slate-800 hover:border-indigo-600 rounded-lg px-4 py-3 transition"
+            >
+              <div className="text-sm font-semibold text-slate-200 group-hover:text-white">
+                {p.source} → {p.target}
+              </div>
+              <div className="mt-1 text-xs text-slate-500 line-clamp-2">{p.blurb}</div>
+            </Link>
+          ))}
+        </div>
+        <Link
+          href="/convert"
+          className="inline-block mt-5 text-sm font-medium text-indigo-400 hover:text-indigo-300 transition"
+        >
+          View all converters →
+        </Link>
+      </section>
+      <section className="max-w-6xl w-full mx-auto px-6 pt-14">
+        <h2 className="text-xl font-bold text-white">Why CodeShift</h2>
+        <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <FileCode className="w-6 h-6 text-indigo-400" />
+            <h3 className="mt-3 text-sm font-semibold text-white">Not just SQL</h3>
+            <p className="mt-1.5 text-xs text-slate-400 leading-relaxed">
+              Five SQL dialects plus Python, JavaScript, TypeScript, Excel VBA, C#, Java
+              and PHP. Most converters stop at SQL.
+            </p>
+          </div>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <GitCompare className="w-6 h-6 text-indigo-400" />
+            <h3 className="mt-3 text-sm font-semibold text-white">Diff and pitfall warnings</h3>
+            <p className="mt-1.5 text-xs text-slate-400 leading-relaxed">
+              See exactly which lines changed, and get flagged on the differences that
+              silently change behaviour instead of throwing an error.
+            </p>
+          </div>
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <Lock className="w-6 h-6 text-indigo-400" />
+            <h3 className="mt-3 text-sm font-semibold text-white">Lightweight and private</h3>
+            <p className="mt-1.5 text-xs text-slate-400 leading-relaxed">
+              No account for free use. Your code is sent to the model to be converted and
+              is not stored on our servers; history stays in your own browser.
+            </p>
+          </div>
+        </div>
+      </section>
+      <section className="max-w-6xl w-full mx-auto px-6 pt-14">
+        <div className="bg-slate-900/60 border border-slate-800 rounded-xl px-5 py-4 text-center">
+          <p className="text-xs text-slate-400">
+            Built for developers migrating legacy Oracle, MySQL and VBA code.
+            Free public beta — {DAILY_LIMIT} conversions a day, no account.
+          </p>
+        </div>
+      </section>
       <footer className="max-w-6xl mx-auto px-4 pb-12 pt-4">
         <div className="border-t border-slate-800 pt-6">
           <h2 className="text-sm font-semibold text-slate-300 mb-1">
@@ -610,12 +689,25 @@ export default function Home() {
               </Link>
             ))}
           </div>
-          <Link
-            href="/convert"
-            className="inline-block mt-5 text-xs font-medium text-indigo-400 hover:text-indigo-300 transition"
-          >
-            View all converters →
-          </Link>
+          <div className="mt-5 flex flex-wrap items-center gap-x-5 gap-y-2">
+            <Link
+              href="/convert"
+              className="text-xs font-medium text-indigo-400 hover:text-indigo-300 transition"
+            >
+              All converters
+            </Link>
+            <button
+              type="button"
+              onClick={() => setShowPaywall(true)}
+              className="text-xs font-medium text-slate-400 hover:text-white transition"
+            >
+              CodeShift Pro
+            </button>
+          </div>
+          <p className="mt-4 text-[11px] text-slate-600">
+            Automated conversion is a starting point, not a guarantee. Always review and
+            test converted code before running it against production data.
+          </p>
         </div>
       </footer>
       {showPaywall && (
