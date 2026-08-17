@@ -6,7 +6,8 @@ import {
 } from "lucide-react";
 import { diffLines, countChanges, collapseUnchanged } from "../lib/diff";
 import { groupExplanation, reviewNotes } from "../lib/classify";
-import { pairGotchas } from "../lib/pairs";
+import Link from "next/link";
+import { pairGotchas, PAIRS } from "../lib/pairs";
 import {
   loadHistory, saveHistoryEntry, clearHistory, loadPrefs, savePrefs,
   withComments, asDiffText, downloadText, extensionFor
@@ -582,6 +583,34 @@ export default function Home() {
           </div>
         )}
       </main>
+      <footer className="max-w-6xl mx-auto px-4 pb-12 pt-4">
+        <div className="border-t border-slate-800 pt-6">
+          <h2 className="text-sm font-semibold text-slate-300 mb-1">
+            Conversion guides
+          </h2>
+          <p className="text-xs text-slate-500 mb-4">
+            Syntax mapping tables and the migration traps that change behaviour without
+            throwing an error.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-2">
+            {PAIRS.map((p) => (
+              <Link
+                key={p.slug}
+                href={`/convert/${p.slug}`}
+                className="text-xs text-slate-400 hover:text-indigo-400 transition"
+              >
+                {p.source} → {p.target}
+              </Link>
+            ))}
+          </div>
+          <Link
+            href="/convert"
+            className="inline-block mt-5 text-xs font-medium text-indigo-400 hover:text-indigo-300 transition"
+          >
+            View all converters →
+          </Link>
+        </div>
+      </footer>
       {showPaywall && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl max-w-md w-full shadow-2xl text-center flex flex-col gap-4">
