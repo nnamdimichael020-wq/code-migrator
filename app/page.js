@@ -2,7 +2,8 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Code2, Copy, Check, Sparkles, Zap, Lock, GitCompare, FileCode,
-  Filter, History, Download, ChevronDown, Trash2, RotateCcw, AlertTriangle
+  Filter, History, Download, ChevronDown, Trash2, RotateCcw, AlertTriangle,
+  AlignLeft, Database
 } from "lucide-react";
 import { diffLines, countChanges, collapseUnchanged } from "../lib/diff";
 import { groupExplanation, reviewNotes } from "../lib/classify";
@@ -32,6 +33,10 @@ export default function Home() {
   const [turnstileToken, setTurnstileToken] = useState("");
   const [viewMode, setViewMode] = useState("diff");
   const [onlyChanges, setOnlyChanges] = useState(false);
+  // "idiomatic" rewrites into target-native patterns; "literal" preserves the
+  // source's structure line-for-line. Persisted, because it's a working habit.
+  const [style, setStyle] = useState("idiomatic");
+  const [showSchemaNote, setShowSchemaNote] = useState(false);
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [showCopyMenu, setShowCopyMenu] = useState(false);
@@ -81,6 +86,7 @@ export default function Home() {
     const prefs = loadPrefs();
     if (prefs.viewMode === "code" || prefs.viewMode === "diff") setViewMode(prefs.viewMode);
     if (typeof prefs.onlyChanges === "boolean") setOnlyChanges(prefs.onlyChanges);
+    if (prefs.style === "idiomatic" || prefs.style === "literal") setStyle(prefs.style);
     setHistory(loadHistory());
   }, []);
   useEffect(() => {
@@ -146,7 +152,8 @@ export default function Home() {
           sourceLang: srcLang,
           targetLang: tgtLang,
           code,
-          turnstileToken
+          turnstileToken,
+          style: override?.style ?? style
         }),
       });
       const data = await res.json();
@@ -166,7 +173,8 @@ export default function Home() {
           targetLang: tgtLang,
           inputCode: code,
           outputCode: data.convertedCode,
-          explanation: data.explanation || []
+          explanation: data.explanation || [],
+          style: override?.style ?? style
         })
       );
     } catch (err) {
@@ -202,6 +210,10 @@ export default function Home() {
     setViewMode(mode);
     savePrefs({ viewMode: mode });
   };
+  const changeStyle = (next) => {
+    setStyle(next);
+    savePrefs({ style: next });
+  };
   const toggleOnlyChanges = () => {
     setOnlyChanges((prev) => {
       savePrefs({ onlyChanges: !prev });
@@ -223,10 +235,13 @@ export default function Home() {
     setTargetLang(entry.targetLang);
     setInputCode(entry.inputCode);
     setShowHistory(false);
+    const entryStyle = entry.style === "literal" ? "literal" : "idiomatic";
+    changeStyle(entryStyle);
     handleConvert({
       sourceLang: entry.sourceLang,
       targetLang: entry.targetLang,
-      inputCode: entry.inputCode
+      inputCode: entry.inputCode,
+      style: entryStyle
     });
   };
   const removeHistory = () => {
@@ -301,8 +316,15 @@ export default function Home() {
                           <span className="text-xs font-medium text-indigo-300 truncate">
                             {entry.sourceLang} → {entry.targetLang}
                           </span>
-                          <span className="text-[10px] text-slate-500 shrink-0">
-                            {relativeTime(entry.at)}
+                          <span className="flex items-center gap-2 shrink-0">
+                            {entry.style === "literal" && (
+                              <span className="text-[10px] uppercase tracking-wide text-slate-400 bg-slate-800 px-1.5 py-0.5 rounded">
+                                Literal
+                              </span>
+                            )}
+                            <span className="text-[10px] text-slate-500">
+                              {relativeTime(entry.at)}
+                            </span>
                           </span>
                         </div>
                         <div className="text-[11px] text-slate-400 font-mono truncate mt-0.5">
@@ -390,6 +412,84 @@ export default function Home() {
               ))}
             </select>
           </div>
+        </div>
+        <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex flex-col gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <span className="text-xs uppercase font-semibold text-slate-500 sm:w-24 shrink-0">
+              Style:
+            </span>
+            <div className="flex items-center rounded-lg border border-slate-700 overflow-hidden self-start">
+              <button
+                type="button"
+                onClick={() => changeStyle("idiomatic")}
+                aria-pressed={style === "idiomatic"}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition ${
+                  style === "idiomatic"
+                    ? "bg-indigo-600 text-white"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Idiomatic
+              </button>
+              <button
+                type="button"
+                onClick={() => changeStyle("literal")}
+                aria-pressed={style === "literal"}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition ${
+                  style === "literal"
+                    ? "bg-indigo-600 text-white"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <AlignLeft className="w-3.5 h-3.5" />
+                Literal
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              {style === "idiomatic"
+                ? "Rewrites into target-native patterns — vectorised pandas, set-based SQL. Best performance."
+                : "Preserves the original structure line-for-line, loops included. Best for review and audit."}
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 border-t border-slate-800 pt-4">
+            <span className="text-xs uppercase font-semibold text-slate-500 sm:w-24 shrink-0">
+              Schema:
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowSchemaNote((open) => !open)}
+              aria-expanded={showSchemaNote}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-dashed border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600 transition self-start"
+            >
+              <Database className="w-3.5 h-3.5" />
+              Add table schema
+              <span className="text-[10px] uppercase tracking-wide bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">
+                Planned
+              </span>
+            </button>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Paste a CREATE TABLE so column names and types stop being guesses.
+            </p>
+          </div>
+          {showSchemaNote && (
+            <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 text-xs text-slate-400 leading-relaxed flex flex-col gap-2">
+              <p className="text-slate-300 font-medium">Not built yet — here is the honest status.</p>
+              <p>
+                Right now the converter only sees the code you paste, so when your SQL
+                references a column it cannot verify, it infers a sensible type. Feeding it
+                your real DDL would remove that guesswork.
+              </p>
+              <p>
+                It is the next substantial thing on the list. It is not live because a schema
+                eats into the same size budget as your code, and doing it properly means
+                raising that budget first.
+              </p>
+              <p className="text-slate-500">
+                No email capture here, and no waitlist. When it ships it will simply appear.
+              </p>
+            </div>
+          )}
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1">
           <div className="flex flex-col bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
