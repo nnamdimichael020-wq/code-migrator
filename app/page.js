@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { diffLines, countChanges, collapseUnchanged } from "../lib/diff";
 import { groupExplanation, reviewNotes } from "../lib/classify";
+import { pairGotchas } from "../lib/pairs";
 import {
   loadHistory, saveHistoryEntry, clearHistory, loadPrefs, savePrefs,
   withComments, asDiffText, downloadText, extensionFor
@@ -33,6 +34,8 @@ export default function Home() {
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [showCopyMenu, setShowCopyMenu] = useState(false);
+  // Set after mount only, so the server and first client render agree.
+  const [isMac, setIsMac] = useState(false);
   // The code the diff is against — frozen at conversion time, so editing the
   // input box afterwards can't silently rewrite the diff you're reading.
   const [diffBase, setDiffBase] = useState("");
@@ -47,7 +50,12 @@ export default function Home() {
     return collapseUnchanged(allDiffRows, 2);
   }, [allDiffRows, onlyChanges]);
   const changeGroups = useMemo(() => groupExplanation(explanation), [explanation]);
-  const flags = useMemo(() => reviewNotes(explanation), [explanation]);
+  // Generic keyword flags, plus the known traps for this specific dialect pair.
+  const flags = useMemo(() => {
+    const generic = reviewNotes(explanation);
+    const specific = pairGotchas(sourceLang, targetLang);
+    return Array.from(new Set([...specific, ...generic]));
+  }, [explanation, sourceLang, targetLang]);
   const turnstileBox = useRef(null);
   const turnstileId = useRef(null);
   const applyUsage = (data) => {
@@ -61,6 +69,7 @@ export default function Home() {
   };
   // Restore the user's last view choice and their local history.
   useEffect(() => {
+    setIsMac(/Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || ""));
     const prefs = loadPrefs();
     if (prefs.viewMode === "code" || prefs.viewMode === "diff") setViewMode(prefs.viewMode);
     if (typeof prefs.onlyChanges === "boolean") setOnlyChanges(prefs.onlyChanges);
@@ -102,8 +111,13 @@ export default function Home() {
     script.onload = start;
     document.head.appendChild(script);
   }, []);
-  const handleConvert = async () => {
-    if (!inputCode.trim()) return;
+  // `override` lets History re-run an old entry without waiting for React
+  // state to flush. Without it a re-run would send the currently-typed code.
+  const handleConvert = async (override = null) => {
+    const srcLang = override?.sourceLang ?? sourceLang;
+    const tgtLang = override?.targetLang ?? targetLang;
+    const code = override?.inputCode ?? inputCode;
+    if (!code.trim()) return;
     if (remaining === 0) {
       setShowPaywall(true);
       return;
@@ -121,9 +135,9 @@ export default function Home() {
         cache: "no-store",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          sourceLang,
-          targetLang,
-          code: inputCode,
+          sourceLang: srcLang,
+          targetLang: tgtLang,
+          code,
           turnstileToken
         }),
       });
@@ -137,12 +151,12 @@ export default function Home() {
       if (data.error) throw new Error(data.error);
       setOutputCode(data.convertedCode);
       setExplanation(data.explanation || []);
-      setDiffBase(inputCode);
+      setDiffBase(code);
       setHistory(
         saveHistoryEntry({
-          sourceLang,
-          targetLang,
-          inputCode,
+          sourceLang: srcLang,
+          targetLang: tgtLang,
+          inputCode: code,
           outputCode: data.convertedCode,
           explanation: data.explanation || []
         })
@@ -195,6 +209,18 @@ export default function Home() {
     setDiffBase(entry.inputCode);
     setShowHistory(false);
   };
+  // Costs one of the daily uses, unlike restoreEntry which is free.
+  const rerunEntry = (entry) => {
+    setSourceLang(entry.sourceLang);
+    setTargetLang(entry.targetLang);
+    setInputCode(entry.inputCode);
+    setShowHistory(false);
+    handleConvert({
+      sourceLang: entry.sourceLang,
+      targetLang: entry.targetLang,
+      inputCode: entry.inputCode
+    });
+  };
   const removeHistory = () => {
     clearHistory();
     setHistory([]);
@@ -208,7 +234,21 @@ export default function Home() {
     if (hrs < 24) return `${hrs}h ago`;
     return `${Math.round(hrs / 24)}d ago`;
   };
+  // Ctrl/Cmd + Enter converts from anywhere on the page, including from
+  // inside the textarea. Registered after handleConvert so it always closes
+  // over the current state.
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+        event.preventDefault();
+        if (!loading && inputCode.trim() && remaining !== null) handleConvert();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
   const remainingLabel = remaining === null ? "…" : `${remaining}/${DAILY_LIMIT} remaining`;
+  const shortcutLabel = isMac ? "⌘ + Enter" : "Ctrl + Enter";
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       <header className="border-b border-slate-800 bg-slate-900/50 backdrop-blur px-6 py-4 flex items-center justify-between">
@@ -231,7 +271,12 @@ export default function Home() {
                   <div className="fixed inset-0 z-10" onClick={() => setShowHistory(false)} />
                   <div className="absolute right-0 mt-2 w-80 max-h-96 overflow-auto bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-20">
                     <div className="px-3 py-2 border-b border-slate-800 flex items-center justify-between">
-                      <span className="text-xs text-slate-400">Saved on this device only</span>
+                      <span
+                        className="text-xs text-slate-400"
+                        title="History is stored in this browser. It survives closing the tab, but does not follow you to another browser or device."
+                      >
+                        Saved in this browser only
+                      </span>
                       <button
                         onClick={removeHistory}
                         className="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1"
@@ -240,10 +285,9 @@ export default function Home() {
                       </button>
                     </div>
                     {history.map((entry) => (
-                      <button
+                      <div
                         key={entry.id}
-                        onClick={() => restoreEntry(entry)}
-                        className="w-full text-left px-3 py-2 hover:bg-slate-800 border-b border-slate-800/60 last:border-0 transition"
+                        className="px-3 py-2 border-b border-slate-800/60 last:border-0 hover:bg-slate-800/50 transition"
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="text-xs font-medium text-indigo-300 truncate">
@@ -256,7 +300,23 @@ export default function Home() {
                         <div className="text-[11px] text-slate-400 font-mono truncate mt-0.5">
                           {entry.inputCode.split("\n")[0]}
                         </div>
-                      </button>
+                        <div className="flex items-center gap-3 mt-1.5">
+                          <button
+                            onClick={() => restoreEntry(entry)}
+                            className="text-[11px] font-medium text-slate-300 hover:text-white"
+                          >
+                            Restore <span className="text-slate-500">(free)</span>
+                          </button>
+                          <button
+                            onClick={() => rerunEntry(entry)}
+                            disabled={loading || remaining === 0}
+                            className="text-[11px] font-medium text-indigo-400 hover:text-indigo-300 disabled:opacity-40 flex items-center gap-1"
+                          >
+                            <RotateCcw className="w-3 h-3" />
+                            Re-run <span className="text-slate-500">(uses 1)</span>
+                          </button>
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </>
@@ -323,12 +383,15 @@ export default function Home() {
             <div className="p-3 border-t border-slate-800 bg-slate-900 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <div ref={turnstileBox} className="min-h-[65px]" />
               <button
-                onClick={handleConvert}
+                onClick={() => handleConvert()}
                 disabled={loading || !inputCode.trim() || remaining === null}
                 className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold px-5 py-2 rounded-lg flex items-center justify-center gap-2 transition"
               >
                 {loading ? "Translating..." : "Translate Code"}
                 <Sparkles className="w-4 h-4" />
+                <span className="hidden sm:inline text-[11px] text-indigo-200/70 font-normal ml-0.5">
+                  {shortcutLabel}
+                </span>
               </button>
             </div>
           </div>
