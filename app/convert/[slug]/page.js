@@ -72,7 +72,7 @@ export default async function ConvertPage({ params }) {
         </h1>
         <p className="mt-3 text-slate-400 text-lg">{pair.blurb}</p>
         <Link
-          href="/"
+          href={`/?from=${encodeURIComponent(pair.source)}&to=${encodeURIComponent(pair.target)}`}
           className="inline-block mt-6 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold px-5 py-2.5 rounded-lg transition"
         >
           Convert {pair.source} to {pair.target} now — free, no signup
@@ -135,7 +135,7 @@ export default async function ConvertPage({ params }) {
             <li>Check the flagged pitfalls above, then test the converted code.</li>
           </ol>
           <Link
-            href="/"
+            href={`/?from=${encodeURIComponent(pair.source)}&to=${encodeURIComponent(pair.target)}`}
             className="inline-block mt-5 text-indigo-400 hover:text-indigo-300 font-medium text-sm"
           >
             Open the converter →
