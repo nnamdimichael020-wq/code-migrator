@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-
 const DAILY_LIMIT = 3;
 const FREE_MAX_LINES = 200;
 const FREE_MAX_CHARS = 12000;
@@ -18,11 +17,38 @@ const ALLOWED_LANGUAGES = [
   "Java",
   "PHP"
 ];
-
+// Sent with every conversion. The rule that matters most: translate into what a
+// senior engineer in the TARGET language would write, not a line-by-line mirror
+// of the source's control flow. A literal transliteration compiles and passes
+// review, but carries the source language's performance profile with it —
+// VBA row loops becoming df.iterrows() is the classic case.
+const SYSTEM_INSTRUCTION = [
+  "You are an expert code and SQL migration engine.",
+  "Convert the code accurately and preserve observable behaviour.",
+  "",
+  "Write idiomatic code for the TARGET language. Do not mirror the source's",
+  "control flow when the target has a native construct for the same job.",
+  "",
+  "- Python with pandas or numpy: do not emit df.iterrows(), df.itertuples() or",
+  "  index loops that append to parallel lists when the same result can be",
+  "  produced with vectorised column operations, boolean masks, np.where or",
+  "  np.select. Use .apply() only for logic that genuinely cannot be vectorised.",
+  "  Row-by-row iteration discards the C-level speed of the underlying arrays.",
+  "- SQL: use set-based statements, not cursors or row-at-a-time loops.",
+  "- JavaScript and TypeScript: prefer map, filter, reduce and async/await over",
+  "  manual index loops and nested callbacks where it reads more clearly.",
+  "",
+  "Correctness outranks idiom. If an idiomatic rewrite would change behaviour —",
+  "NULL handling, ordering, error semantics, side effects, numeric precision —",
+  "keep the faithful version and say why in the explanation.",
+  "",
+  "In `explanation`, list only what matters: behaviour that changes between the",
+  "two languages, and any place you replaced the source's structure with a",
+  "target-native pattern."
+].join("\n");
 function utcDate() {
   return new Date().toISOString().slice(0, 10);
 }
-
 function clientIp(request) {
   return (
     request.headers.get("cf-connecting-ip") ||
@@ -31,7 +57,6 @@ function clientIp(request) {
     "unknown"
   );
 }
-
 function networkKey(ip) {
   if (!ip || ip === "unknown") return "unknown";
   if (ip.includes(":")) {
@@ -40,18 +65,15 @@ function networkKey(ip) {
   }
   return `v4:${ip}`;
 }
-
 function readVisitorId(request) {
   const cookie = request.headers.get("cookie") || "";
   const match = cookie.match(/(?:^|;\s*)cs_vid=([a-zA-Z0-9_-]{16,80})/);
   if (match) return { id: match[1], isNew: false };
   return { id: crypto.randomUUID(), isNew: true };
 }
-
 function visitorCookie(id) {
   return `cs_vid=${id}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax`;
 }
-
 function usageConfig() {
   const accountId = process.env.CF_ACCOUNT_ID;
   const namespaceId = process.env.CF_KV_NAMESPACE_ID;
@@ -59,11 +81,9 @@ function usageConfig() {
   if (!accountId || !namespaceId || !token) return null;
   return { accountId, namespaceId, token };
 }
-
 function usageUrl(config, key) {
   return `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/storage/kv/namespaces/${config.namespaceId}/values/${encodeURIComponent(key)}`;
 }
-
 function jsonWithUsage(body, visitor, status = 200) {
   const headers = {
     "Cache-Control": "no-store, max-age=0"
@@ -73,7 +93,6 @@ function jsonWithUsage(body, visitor, status = 200) {
   }
   return NextResponse.json(body, { status, headers });
 }
-
 async function readCount(config, key) {
   const res = await fetch(usageUrl(config, key), {
     headers: { Authorization: `Bearer ${config.token}` }
@@ -86,7 +105,6 @@ async function readCount(config, key) {
   const used = parseInt(await res.text(), 10);
   return Number.isFinite(used) ? used : 0;
 }
-
 async function writeCount(config, key, used) {
   const res = await fetch(`${usageUrl(config, key)}?expiration_ttl=172800`, {
     method: "PUT",
@@ -101,7 +119,6 @@ async function writeCount(config, key, used) {
     throw new Error(`Usage store write failed (${res.status}): ${text.slice(0, 180)}`);
   }
 }
-
 function usageKeys(request, visitorId) {
   const ip = clientIp(request);
   const day = utcDate();
@@ -111,18 +128,15 @@ function usageKeys(request, visitorId) {
     net: `${day}:net:${networkKey(ip)}`
   };
 }
-
 async function loadUsage(request, visitorId) {
   const config = usageConfig();
   if (!config) return { used: 0, configured: false, keys: null, counts: null, config: null };
-
   const keys = usageKeys(request, visitorId);
   const [visitor, ip, net] = await Promise.all([
     readCount(config, keys.visitor),
     readCount(config, keys.ip),
     readCount(config, keys.net)
   ]);
-
   return {
     used: Math.max(visitor, ip, net),
     counts: { visitor, ip, net },
@@ -131,7 +145,6 @@ async function loadUsage(request, visitorId) {
     config
   };
 }
-
 async function bumpUsage(usage) {
   const next = usage.used + 1;
   await Promise.all([
@@ -149,12 +162,10 @@ async function verifyTurnstile(token, ip) {
   if (!token || typeof token !== "string") {
     return { ok: false, error: "Human check missing. Refresh the page and wait a second." };
   }
-
   const body = new URLSearchParams();
   body.set("secret", secret);
   body.set("response", token);
   if (ip && ip !== "unknown") body.set("remoteip", ip);
-
   const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -174,15 +185,12 @@ function usagePayload(used) {
     limit: DAILY_LIMIT
   };
 }
-
 function extractText(data) {
   if (typeof data?.output_text === "string" && data.output_text.trim()) {
     return data.output_text;
   }
-
   const steps = Array.isArray(data?.steps) ? data.steps : [];
   const texts = [];
-
   for (const step of steps) {
     if (step?.type === "model_output" && Array.isArray(step.content)) {
       for (const part of step.content) {
@@ -192,16 +200,13 @@ function extractText(data) {
       }
     }
   }
-
   if (texts.length) return texts.join("\n");
   if (data?.outputs?.[0]?.text) return data.outputs[0].text;
   if (data?.candidates?.[0]?.content?.parts?.[0]?.text) {
     return data.candidates[0].content.parts[0].text;
   }
-
   return "";
 }
-
 function parseModelJson(raw) {
   let text = String(raw || "").trim();
   text = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
@@ -212,7 +217,6 @@ function parseModelJson(raw) {
   }
   return JSON.parse(text);
 }
-
 export async function GET(request) {
   const visitor = readVisitorId(request);
   try {
@@ -236,16 +240,13 @@ export async function GET(request) {
     );
   }
 }
-
 export async function POST(request) {
   const visitor = readVisitorId(request);
   try {
         const { sourceLang, targetLang, code, turnstileToken } = await request.json();
-
         if (!code || !sourceLang || !targetLang) {
       return jsonWithUsage({ error: "Missing required fields" }, visitor, 400);
     }
-
     if (!ALLOWED_LANGUAGES.includes(sourceLang) || !ALLOWED_LANGUAGES.includes(targetLang)) {
       return jsonWithUsage({ error: "Unsupported language pair." }, visitor, 400);
     }
@@ -263,7 +264,6 @@ export async function POST(request) {
         400
       );
     }
-
     const usage = await loadUsage(request, visitor.id);
     if (!usage.configured) {
       return jsonWithUsage(
@@ -275,7 +275,6 @@ export async function POST(request) {
         500
       );
     }
-
     if (usage.used >= DAILY_LIMIT) {
       return jsonWithUsage(
         {
@@ -286,7 +285,6 @@ export async function POST(request) {
         429
       );
     }
-
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return jsonWithUsage(
@@ -298,11 +296,9 @@ export async function POST(request) {
         500
       );
     }
-
     const requestBody = {
       store: false,
-      system_instruction:
-        "You are an expert code and SQL migration engine. Convert the code accurately. Keep behavior the same. Use idiomatic target syntax. Explain only the important differences.",
+      system_instruction: SYSTEM_INSTRUCTION,
       input: `Convert this code from ${sourceLang} to ${targetLang}.\n\nCode:\n${code}`,
       response_format: {
         type: "text",
@@ -323,10 +319,8 @@ export async function POST(request) {
         thinking_level: "low"
       }
     };
-
     let lastError = "Gemini did not return a usable conversion.";
     let lastStatus = 500;
-
     for (const model of MODELS) {
       const apiResponse = await fetch(
         "https://generativelanguage.googleapis.com/v1beta/interactions",
@@ -339,13 +333,10 @@ export async function POST(request) {
           body: JSON.stringify({ ...requestBody, model })
         }
       );
-
       const data = await apiResponse.json();
-
       if (!apiResponse.ok) {
         lastError = data?.error?.message || JSON.stringify(data);
         lastStatus = apiResponse.status === 429 ? 503 : apiResponse.status;
-
         if (
           /no longer available|not found|not supported|not available to new users|is not available|quota|rate.limit|resource exhausted|too many requests/i.test(
             lastError
@@ -353,20 +344,17 @@ export async function POST(request) {
         ) {
           continue;
         }
-
         return jsonWithUsage(
           { error: lastError, ...usagePayload(usage.used) },
           visitor,
           lastStatus
         );
       }
-
       const rawText = extractText(data);
       if (!rawText) {
         lastError = "Gemini returned no text.";
         continue;
       }
-
       let parsed;
       try {
         parsed = parseModelJson(rawText);
@@ -376,14 +364,11 @@ export async function POST(request) {
           explanation: ["Returned as plain text because JSON parsing failed."]
         };
       }
-
       if (!parsed.convertedCode) {
         lastError = "Gemini JSON was missing convertedCode.";
         continue;
       }
-
       const used = await bumpUsage(usage);
-
       return jsonWithUsage(
         {
           convertedCode: parsed.convertedCode,
@@ -393,7 +378,6 @@ export async function POST(request) {
         visitor
       );
     }
-
     const friendlyQuota = /quota|rate.limit|resource exhausted|too many requests|input_token/i.test(
       lastError
     );
