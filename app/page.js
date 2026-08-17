@@ -1,7 +1,15 @@
 "use client";
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Code2, Copy, Check, Sparkles, Zap, Lock, GitCompare, FileCode } from "lucide-react";
+import {
+  Code2, Copy, Check, Sparkles, Zap, Lock, GitCompare, FileCode,
+  Filter, History, Download, ChevronDown, Trash2, RotateCcw, AlertTriangle
+} from "lucide-react";
 import { diffLines, countChanges, collapseUnchanged } from "../lib/diff";
+import { groupExplanation, reviewNotes } from "../lib/classify";
+import {
+  loadHistory, saveHistoryEntry, clearHistory, loadPrefs, savePrefs,
+  withComments, asDiffText, downloadText, extensionFor
+} from "../lib/history";
 const LANGUAGES = [
   "PostgreSQL", "Oracle SQL", "Snowflake SQL", "Google BigQuery",
   "MySQL", "Python", "JavaScript / Node.js", "TypeScript",
@@ -20,12 +28,26 @@ export default function Home() {
   const [remaining, setRemaining] = useState(null);
   const [showPaywall, setShowPaywall] = useState(false);
   const [turnstileToken, setTurnstileToken] = useState("");
-  const [viewMode, setViewMode] = useState("code");
-  const diffRows = useMemo(() => {
+  const [viewMode, setViewMode] = useState("diff");
+  const [onlyChanges, setOnlyChanges] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [showCopyMenu, setShowCopyMenu] = useState(false);
+  // The code the diff is against — frozen at conversion time, so editing the
+  // input box afterwards can't silently rewrite the diff you're reading.
+  const [diffBase, setDiffBase] = useState("");
+  const allDiffRows = useMemo(() => {
     if (!outputCode) return [];
-    return collapseUnchanged(diffLines(inputCode, outputCode), 2);
-  }, [inputCode, outputCode]);
-  const diffStats = useMemo(() => countChanges(diffRows), [diffRows]);
+    return diffLines(diffBase, outputCode);
+  }, [diffBase, outputCode]);
+  const diffStats = useMemo(() => countChanges(allDiffRows), [allDiffRows]);
+  const diffRows = useMemo(() => {
+    if (allDiffRows.length === 0) return [];
+    if (onlyChanges) return allDiffRows.filter((row) => row.type !== "same");
+    return collapseUnchanged(allDiffRows, 2);
+  }, [allDiffRows, onlyChanges]);
+  const changeGroups = useMemo(() => groupExplanation(explanation), [explanation]);
+  const flags = useMemo(() => reviewNotes(explanation), [explanation]);
   const turnstileBox = useRef(null);
   const turnstileId = useRef(null);
   const applyUsage = (data) => {
@@ -37,6 +59,13 @@ export default function Home() {
       window.turnstile.reset(turnstileId.current);
     }
   };
+  // Restore the user's last view choice and their local history.
+  useEffect(() => {
+    const prefs = loadPrefs();
+    if (prefs.viewMode === "code" || prefs.viewMode === "diff") setViewMode(prefs.viewMode);
+    if (typeof prefs.onlyChanges === "boolean") setOnlyChanges(prefs.onlyChanges);
+    setHistory(loadHistory());
+  }, []);
   useEffect(() => {
     fetch("/api/convert", { cache: "no-store" })
       .then((res) => res.json())
@@ -108,16 +137,76 @@ export default function Home() {
       if (data.error) throw new Error(data.error);
       setOutputCode(data.convertedCode);
       setExplanation(data.explanation || []);
+      setDiffBase(inputCode);
+      setHistory(
+        saveHistoryEntry({
+          sourceLang,
+          targetLang,
+          inputCode,
+          outputCode: data.convertedCode,
+          explanation: data.explanation || []
+        })
+      );
     } catch (err) {
       alert(err.message || "Error generating conversion. Please try again.");
     } finally {
       setLoading(false);
     }
   };
+  const flashCopied = () => {
+    setCopied(true);
+    setShowCopyMenu(false);
+    setTimeout(() => setCopied(false), 2000);
+  };
   const copyToClipboard = () => {
     navigator.clipboard.writeText(outputCode);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    flashCopied();
+  };
+  const copyWithComments = () => {
+    navigator.clipboard.writeText(
+      withComments({ code: outputCode, explanation, sourceLang, targetLang })
+    );
+    flashCopied();
+  };
+  const copyAsDiff = () => {
+    navigator.clipboard.writeText(asDiffText(allDiffRows));
+    flashCopied();
+  };
+  const downloadResult = () => {
+    downloadText(`converted.${extensionFor(targetLang)}`, outputCode);
+    setShowCopyMenu(false);
+  };
+  const changeView = (mode) => {
+    setViewMode(mode);
+    savePrefs({ viewMode: mode });
+  };
+  const toggleOnlyChanges = () => {
+    setOnlyChanges((prev) => {
+      savePrefs({ onlyChanges: !prev });
+      return !prev;
+    });
+  };
+  const restoreEntry = (entry) => {
+    setSourceLang(entry.sourceLang);
+    setTargetLang(entry.targetLang);
+    setInputCode(entry.inputCode);
+    setOutputCode(entry.outputCode);
+    setExplanation(entry.explanation || []);
+    setDiffBase(entry.inputCode);
+    setShowHistory(false);
+  };
+  const removeHistory = () => {
+    clearHistory();
+    setHistory([]);
+    setShowHistory(false);
+  };
+  const relativeTime = (ts) => {
+    const mins = Math.round((Date.now() - ts) / 60000);
+    if (mins < 1) return "just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    return `${Math.round(hrs / 24)}d ago`;
   };
   const remainingLabel = remaining === null ? "…" : `${remaining}/${DAILY_LIMIT} remaining`;
   return (
@@ -128,6 +217,52 @@ export default function Home() {
           <span className="font-bold text-lg tracking-tight">CodeShift AI</span>
         </div>
         <div className="flex items-center gap-4 text-sm">
+          {history.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => setShowHistory((v) => !v)}
+                className="flex items-center gap-1.5 text-slate-300 hover:text-white transition"
+              >
+                <History className="w-4 h-4" />
+                History ({history.length})
+              </button>
+              {showHistory && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowHistory(false)} />
+                  <div className="absolute right-0 mt-2 w-80 max-h-96 overflow-auto bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-20">
+                    <div className="px-3 py-2 border-b border-slate-800 flex items-center justify-between">
+                      <span className="text-xs text-slate-400">Saved on this device only</span>
+                      <button
+                        onClick={removeHistory}
+                        className="text-xs text-rose-400 hover:text-rose-300 flex items-center gap-1"
+                      >
+                        <Trash2 className="w-3 h-3" /> Clear
+                      </button>
+                    </div>
+                    {history.map((entry) => (
+                      <button
+                        key={entry.id}
+                        onClick={() => restoreEntry(entry)}
+                        className="w-full text-left px-3 py-2 hover:bg-slate-800 border-b border-slate-800/60 last:border-0 transition"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-xs font-medium text-indigo-300 truncate">
+                            {entry.sourceLang} → {entry.targetLang}
+                          </span>
+                          <span className="text-[10px] text-slate-500 shrink-0">
+                            {relativeTime(entry.at)}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 font-mono truncate mt-0.5">
+                          {entry.inputCode.split("\n")[0]}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
           <span className="text-slate-400">
             Free Daily Uses: <strong className="text-indigo-400">{remainingLabel}</strong>
           </span>
@@ -204,7 +339,7 @@ export default function Home() {
                 <div className="flex items-center gap-3">
                   <div className="flex items-center rounded-md border border-slate-700 overflow-hidden">
                     <button
-                      onClick={() => setViewMode("code")}
+                      onClick={() => changeView("code")}
                       className={`flex items-center gap-1 px-2 py-1 text-xs transition ${
                         viewMode === "code"
                           ? "bg-indigo-600 text-white"
@@ -215,7 +350,7 @@ export default function Home() {
                       Result
                     </button>
                     <button
-                      onClick={() => setViewMode("diff")}
+                      onClick={() => changeView("diff")}
                       className={`flex items-center gap-1 px-2 py-1 text-xs transition ${
                         viewMode === "diff"
                           ? "bg-indigo-600 text-white"
@@ -226,13 +361,51 @@ export default function Home() {
                       Diff
                     </button>
                   </div>
-                  <button
-                    onClick={copyToClipboard}
-                    className="flex items-center gap-1 text-indigo-400 hover:text-indigo-300 text-xs"
-                  >
-                    {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                    {copied ? "Copied!" : "Copy Code"}
-                  </button>
+                  <div className="relative">
+                    <button
+                      onClick={() => setShowCopyMenu((v) => !v)}
+                      className="flex items-center gap-1 text-indigo-400 hover:text-indigo-300 text-xs"
+                    >
+                      {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                      {copied ? "Copied!" : "Copy"}
+                      <ChevronDown className="w-3 h-3" />
+                    </button>
+                    {showCopyMenu && (
+                      <>
+                        <div className="fixed inset-0 z-10" onClick={() => setShowCopyMenu(false)} />
+                        <div className="absolute right-0 mt-2 w-56 bg-slate-900 border border-slate-700 rounded-lg shadow-xl z-20 overflow-hidden">
+                          <button
+                            onClick={copyToClipboard}
+                            className="w-full text-left px-3 py-2 text-xs text-slate-200 hover:bg-slate-800 transition"
+                          >
+                            Copy code
+                            <span className="block text-[10px] text-slate-500">Just the converted code</span>
+                          </button>
+                          <button
+                            onClick={copyWithComments}
+                            className="w-full text-left px-3 py-2 text-xs text-slate-200 hover:bg-slate-800 transition"
+                          >
+                            Copy with comments
+                            <span className="block text-[10px] text-slate-500">Key changes as a comment header</span>
+                          </button>
+                          <button
+                            onClick={copyAsDiff}
+                            className="w-full text-left px-3 py-2 text-xs text-slate-200 hover:bg-slate-800 transition"
+                          >
+                            Copy as diff
+                            <span className="block text-[10px] text-slate-500">Plain text, for a PR or chat</span>
+                          </button>
+                          <button
+                            onClick={downloadResult}
+                            className="w-full text-left px-3 py-2 text-xs text-slate-200 hover:bg-slate-800 transition border-t border-slate-800 flex items-center gap-1.5"
+                          >
+                            <Download className="w-3 h-3" />
+                            Download .{extensionFor(targetLang)}
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -245,12 +418,23 @@ export default function Home() {
               />
             ) : (
               <div className="flex-1 min-h-[300px] flex flex-col">
-                <div className="px-4 py-1.5 border-b border-slate-800 text-xs text-slate-400 flex gap-3">
+                <div className="px-4 py-1.5 border-b border-slate-800 text-xs text-slate-400 flex gap-3 items-center">
                   <span className="text-emerald-400">+{diffStats.added} added</span>
                   <span className="text-rose-400">-{diffStats.removed} removed</span>
                   {diffStats.added === 0 && diffStats.removed === 0 && (
                     <span className="text-slate-500">no line-level changes</span>
                   )}
+                  <button
+                    onClick={toggleOnlyChanges}
+                    className={`ml-auto flex items-center gap-1 px-2 py-0.5 rounded border transition ${
+                      onlyChanges
+                        ? "border-indigo-500 text-indigo-300 bg-indigo-500/10"
+                        : "border-slate-700 text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    <Filter className="w-3 h-3" />
+                    Only changes
+                  </button>
                 </div>
                 <div className="flex-1 overflow-auto font-mono text-sm">
                   {diffRows.map((row, index) => {
@@ -294,12 +478,44 @@ export default function Home() {
         </div>
         {explanation.length > 0 && (
           <div className="bg-slate-900 p-4 rounded-xl border border-slate-800">
-            <h3 className="text-sm font-semibold text-indigo-400 mb-2">Key Changes Made:</h3>
-            <ul className="list-disc list-inside text-sm text-slate-300 space-y-1">
-              {explanation.map((item, index) => (
-                <li key={index}>{item}</li>
+            <h3 className="text-sm font-semibold text-indigo-400 mb-3">Key Changes Made:</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+              {changeGroups.map((group) => (
+                <div key={group.id}>
+                  <div className="flex items-baseline gap-2">
+                    <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-300">
+                      {group.label}
+                    </h4>
+                    <span className="text-[10px] text-slate-500">{group.items.length}</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 mb-1">{group.hint}</p>
+                  <ul className="list-disc list-inside text-sm text-slate-300 space-y-1">
+                    {group.items.map((item, index) => (
+                      <li key={index}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
               ))}
-            </ul>
+            </div>
+            {flags.length > 0 && (
+              <div className="mt-4 pt-3 border-t border-slate-800">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-amber-400">
+                    Worth checking yourself
+                  </h4>
+                </div>
+                <ul className="list-disc list-inside text-sm text-slate-400 space-y-1">
+                  {flags.map((flag, index) => (
+                    <li key={index}>{flag}</li>
+                  ))}
+                </ul>
+                <p className="text-[11px] text-slate-600 mt-2">
+                  These are common migration pitfalls, flagged by keyword. Always test converted
+                  code before shipping it.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </main>
