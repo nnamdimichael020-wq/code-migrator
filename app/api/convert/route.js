@@ -17,15 +17,28 @@ const ALLOWED_LANGUAGES = [
   "Java",
   "PHP"
 ];
-// Sent with every conversion. The rule that matters most: translate into what a
-// senior engineer in the TARGET language would write, not a line-by-line mirror
-// of the source's control flow. A literal transliteration compiles and passes
-// review, but carries the source language's performance profile with it —
-// VBA row loops becoming df.iterrows() is the classic case.
-const SYSTEM_INSTRUCTION = [
+// Shared preamble + closing rules. Only the middle section differs between the
+// two conversion styles, so the parts that must never drift live here once.
+const INSTRUCTION_HEAD = [
   "You are an expert code and SQL migration engine.",
-  "Convert the code accurately and preserve observable behaviour.",
+  "Convert the code accurately and preserve observable behaviour."
+];
+// Applies to both styles. Correctness is not a mode the user can switch off:
+// even in "idiomatic" the model must refuse a rewrite that changes semantics.
+const INSTRUCTION_TAIL = [
+  "Correctness outranks style in both modes. If a rewrite would change behaviour —",
+  "NULL handling, ordering, error semantics, side effects, numeric precision —",
+  "keep the faithful version and say why in the explanation.",
   "",
+  "In `explanation`, list only what matters: behaviour that changes between the",
+  "two languages, and any place you departed from the source's structure."
+];
+// IDIOMATIC (default). The rule that matters most: translate into what a senior
+// engineer in the TARGET language would write, not a line-by-line mirror of the
+// source's control flow. A literal transliteration compiles and passes review,
+// but carries the source language's performance profile with it — VBA row loops
+// becoming df.iterrows() is the classic case.
+const IDIOMATIC_RULES = [
   "Write idiomatic code for the TARGET language. Do not mirror the source's",
   "control flow when the target has a native construct for the same job.",
   "",
@@ -36,16 +49,32 @@ const SYSTEM_INSTRUCTION = [
   "  Row-by-row iteration discards the C-level speed of the underlying arrays.",
   "- SQL: use set-based statements, not cursors or row-at-a-time loops.",
   "- JavaScript and TypeScript: prefer map, filter, reduce and async/await over",
-  "  manual index loops and nested callbacks where it reads more clearly.",
+  "  manual index loops and nested callbacks where it reads more clearly."
+];
+// LITERAL. For reviewers migrating production code who need a line-for-line
+// audit trail against the original. Structure-preserving is the whole point —
+// so the anti-iterrows rule is deliberately absent here, and a row loop in the
+// source is expected to stay a row loop in the output.
+const LITERAL_RULES = [
+  "Translate as literally as the target language allows. Preserve the source's",
+  "structure so the result can be diffed line-for-line against the original.",
   "",
-  "Correctness outranks idiom. If an idiomatic rewrite would change behaviour —",
-  "NULL handling, ordering, error semantics, side effects, numeric precision —",
-  "keep the faithful version and say why in the explanation.",
+  "- Keep the same statement order, control flow and nesting depth.",
+  "- Keep loops as loops. Do not vectorise, do not collapse a loop into a set-based",
+  "  or functional expression, even where that would be faster or more idiomatic.",
+  "- Keep the source's variable, column and function names unless the target",
+  "  language forbids them.",
+  "- Do not merge, split or reorder statements, and do not add abstractions,",
+  "  helper functions or error handling that the source did not have.",
   "",
-  "In `explanation`, list only what matters: behaviour that changes between the",
-  "two languages, and any place you replaced the source's structure with a",
-  "target-native pattern."
-].join("\n");
+  "Use target-language syntax that actually compiles and runs — literal means",
+  "structure-preserving, not a broken transliteration."
+];
+function buildInstruction(style) {
+  const rules = style === "literal" ? LITERAL_RULES : IDIOMATIC_RULES;
+  return [...INSTRUCTION_HEAD, "", ...rules, "", ...INSTRUCTION_TAIL].join("\n");
+}
+const STYLES = ["idiomatic", "literal"];
 function utcDate() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -243,7 +272,10 @@ export async function GET(request) {
 export async function POST(request) {
   const visitor = readVisitorId(request);
   try {
-        const { sourceLang, targetLang, code, turnstileToken } = await request.json();
+        const { sourceLang, targetLang, code, turnstileToken, style } = await request.json();
+        // Unknown or missing style falls back to idiomatic rather than erroring,
+        // so an older cached client keeps working after a deploy.
+        const conversionStyle = STYLES.includes(style) ? style : "idiomatic";
         if (!code || !sourceLang || !targetLang) {
       return jsonWithUsage({ error: "Missing required fields" }, visitor, 400);
     }
@@ -298,7 +330,7 @@ export async function POST(request) {
     }
     const requestBody = {
       store: false,
-      system_instruction: SYSTEM_INSTRUCTION,
+      system_instruction: buildInstruction(conversionStyle),
       input: `Convert this code from ${sourceLang} to ${targetLang}.\n\nCode:\n${code}`,
       response_format: {
         type: "text",
