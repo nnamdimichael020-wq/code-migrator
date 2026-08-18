@@ -10,6 +10,7 @@ import { groupExplanation } from "../lib/classify";
 import Link from "next/link";
 import { PAIRS } from "../lib/pairs";
 import { collectIssues, issuesSummary } from "../lib/issues";
+import { FREE_MAX_LINES, SIZE_LIMIT_CODE, inspectPaste } from "../lib/limits";
 import {
   loadHistory, saveHistoryEntry, clearHistory, loadPrefs, savePrefs,
   withComments, asDiffText, downloadText, extensionFor
@@ -32,6 +33,7 @@ export default function Home() {
   const [copied, setCopied] = useState(false);
   const [remaining, setRemaining] = useState(null);
   const [showPaywall, setShowPaywall] = useState(false);
+  const [paywallReason, setPaywallReason] = useState("limit");
   const [turnstileToken, setTurnstileToken] = useState("");
   const [viewMode, setViewMode] = useState("diff");
   const [onlyChanges, setOnlyChanges] = useState(false);
@@ -58,6 +60,7 @@ export default function Home() {
     return collapseUnchanged(allDiffRows, 2);
   }, [allDiffRows, onlyChanges]);
   const changeGroups = useMemo(() => groupExplanation(explanation), [explanation]);
+  const pasteInfo = useMemo(() => inspectPaste(inputCode), [inputCode]);
   const flags = useMemo(
     () =>
       collectIssues({
@@ -147,7 +150,13 @@ export default function Home() {
     const tgtLang = override?.targetLang ?? targetLang;
     const code = override?.inputCode ?? inputCode;
     if (!code.trim()) return;
+    if (inspectPaste(code).tooLong) {
+      setPaywallReason("size");
+      setShowPaywall(true);
+      return;
+    }
     if (remaining === 0) {
+      setPaywallReason("limit");
       setShowPaywall(true);
       return;
     }
@@ -283,7 +292,12 @@ export default function Home() {
     const onKeyDown = (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
         event.preventDefault();
-        if (!loading && inputCode.trim() && remaining !== null) handleConvert();
+        if (!loading && inputCode.trim() && remaining !== null && !inspectPaste(inputCode).tooLong) {
+          handleConvert();
+        } else if (inspectPaste(inputCode).tooLong) {
+          setPaywallReason("size");
+          setShowPaywall(true);
+        }
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -376,7 +390,10 @@ export default function Home() {
             Free Daily Uses: <strong className="text-indigo-400">{remainingLabel}</strong>
           </span>
           <button
-            onClick={() => setShowPaywall(true)}
+            onClick={() => {
+              setPaywallReason(pasteInfo.tooLong ? "size" : "limit");
+              setShowPaywall(true);
+            }}
             className="bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition"
           >
             <Zap className="w-4 h-4" /> Go Pro ($7)
@@ -526,7 +543,7 @@ export default function Home() {
               <div ref={turnstileBox} className="min-h-[65px]" />
               <button
                 onClick={() => handleConvert()}
-                disabled={loading || !inputCode.trim() || remaining === null}
+                disabled={loading || !inputCode.trim() || remaining === null || pasteInfo.tooLong}
                 className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold px-5 py-2 rounded-lg flex items-center justify-center gap-2 transition"
               >
                 {loading ? "Translating..." : "Translate Code"}
@@ -681,6 +698,48 @@ export default function Home() {
             )}
           </div>
         </div>
+        {pasteInfo.tooLong && (
+          <div className="bg-indigo-500/10 border border-indigo-500/40 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex-1">
+              <div className="text-sm font-semibold text-indigo-200">
+                This looks like a longer script ({pasteInfo.lineCount} lines)
+              </div>
+              <p className="text-xs text-indigo-200/70 mt-0.5">
+                Free converts one snippet at a time, up to {FREE_MAX_LINES} lines.
+                Split it into smaller pieces, or wait for Pro — longer scripts are on that list.
+                Folder upload is not part of this.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setPaywallReason("size");
+                setShowPaywall(true);
+              }}
+              className="shrink-0 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg"
+            >
+              See Pro
+            </button>
+          </div>
+        )}
+        {!pasteInfo.tooLong && pasteInfo.multiStatement && (
+          <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+            <p className="flex-1 text-xs text-slate-400">
+              This looks like several statements. Free works best one snippet at a time.
+              Batches of statements will be a Pro feature — not folder upload, just longer pastes.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setPaywallReason("size");
+                setShowPaywall(true);
+              }}
+              className="shrink-0 text-xs font-medium text-indigo-400 hover:text-indigo-300"
+            >
+              See Pro
+            </button>
+          </div>
+        )}
         {explanation.length > 0 && flags.length > 0 && (
           <a
             href="#worth-checking"

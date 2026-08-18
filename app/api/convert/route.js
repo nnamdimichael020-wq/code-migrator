@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
+import { inspectPaste, sizeLimitPayload } from "../../../lib/limits.js";
 const DAILY_LIMIT = 3;
-const FREE_MAX_LINES = 200;
-const FREE_MAX_CHARS = 12000;
 const MODELS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"];
 const ALLOWED_LANGUAGES = [
   "PostgreSQL",
@@ -292,15 +291,9 @@ export async function POST(request) {
     if (!human.ok) {
       return jsonWithUsage({ error: human.error }, visitor, 403);
     }
-    const lineCount = String(code).split(/\r?\n/).length;
-    if (lineCount > FREE_MAX_LINES || String(code).length > FREE_MAX_CHARS) {
-      return jsonWithUsage(
-        {
-          error: `Free beta limit is ${FREE_MAX_LINES} lines. Your paste has ${lineCount} lines. Split it into smaller pieces.`
-        },
-        visitor,
-        400
-      );
+    const paste = inspectPaste(code);
+    if (paste.tooLong) {
+      return jsonWithUsage(sizeLimitPayload(paste.lineCount), visitor, 400);
     }
     const usage = await loadUsage(request, visitor.id);
     if (!usage.configured) {
