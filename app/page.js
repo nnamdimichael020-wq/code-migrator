@@ -3,12 +3,14 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Code2, Copy, Check, Sparkles, Zap, Lock, GitCompare, FileCode,
   Filter, History, Download, ChevronDown, Trash2, RotateCcw, AlertTriangle,
-  AlignLeft, Database
+  AlignLeft, Database, FolderOpen
 } from "lucide-react";
 import { diffLines, countChanges, collapseUnchanged } from "../lib/diff";
-import { groupExplanation, reviewNotes } from "../lib/classify";
+import { groupExplanation } from "../lib/classify";
 import Link from "next/link";
-import { pairGotchas, PAIRS } from "../lib/pairs";
+import { PAIRS } from "../lib/pairs";
+import { collectIssues, issuesSummary } from "../lib/issues";
+import { FREE_MAX_LINES, SIZE_LIMIT_CODE, inspectPaste } from "../lib/limits";
 import {
   loadHistory, saveHistoryEntry, clearHistory, loadPrefs, savePrefs,
   withComments, asDiffText, downloadText, extensionFor
@@ -20,23 +22,45 @@ const LANGUAGES = [
 ];
 const DAILY_LIMIT = 3;
 const TURNSTILE_SITE_KEY = "0x4AAAAAAEO2i1RSHJtRwNpP";
+// Static homepage sample — no API call, no quota. Keep this short so both
+// panes stay above the fold on a typical laptop.
+const HOME_EXAMPLE = {
+  source: "Oracle SQL",
+  target: "PostgreSQL",
+  input: `SELECT emp_id,
+       NVL(bonus, 0) AS bonus,
+       SYSDATE AS run_at
+FROM employees
+WHERE ROWNUM <= 5;`,
+  output: `SELECT emp_id,
+       COALESCE(bonus, 0) AS bonus,
+       CURRENT_TIMESTAMP AS run_at
+FROM employees
+LIMIT 5;`
+};
 export default function Home() {
-  const [sourceLang, setSourceLang] = useState("Oracle SQL");
-  const [targetLang, setTargetLang] = useState("PostgreSQL");
-  const [inputCode, setInputCode] = useState("");
-  const [outputCode, setOutputCode] = useState("");
+  const [sourceLang, setSourceLang] = useState(HOME_EXAMPLE.source);
+  const [targetLang, setTargetLang] = useState(HOME_EXAMPLE.target);
+  const [inputCode, setInputCode] = useState(HOME_EXAMPLE.input);
+  const [outputCode, setOutputCode] = useState(HOME_EXAMPLE.output);
   const [explanation, setExplanation] = useState([]);
+  const [pitfalls, setPitfalls] = useState([]);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [remaining, setRemaining] = useState(null);
   const [showPaywall, setShowPaywall] = useState(false);
+  const [paywallReason, setPaywallReason] = useState("limit");
   const [turnstileToken, setTurnstileToken] = useState("");
-  const [viewMode, setViewMode] = useState("diff");
+  // Result view for the canned sample so the Diff chrome stays off until
+  // the visitor actually converts.
+  const [viewMode, setViewMode] = useState("code");
+  const [showingExample, setShowingExample] = useState(true);
   const [onlyChanges, setOnlyChanges] = useState(false);
   // "idiomatic" rewrites into target-native patterns; "literal" preserves the
   // source's structure line-for-line. Persisted, because it's a working habit.
   const [style, setStyle] = useState("idiomatic");
   const [showSchemaNote, setShowSchemaNote] = useState(false);
+  const [showFolderNote, setShowFolderNote] = useState(false);
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [showCopyMenu, setShowCopyMenu] = useState(false);
@@ -44,7 +68,7 @@ export default function Home() {
   const [isMac, setIsMac] = useState(false);
   // The code the diff is against — frozen at conversion time, so editing the
   // input box afterwards can't silently rewrite the diff you're reading.
-  const [diffBase, setDiffBase] = useState("");
+  const [diffBase, setDiffBase] = useState(HOME_EXAMPLE.input);
   const allDiffRows = useMemo(() => {
     if (!outputCode) return [];
     return diffLines(diffBase, outputCode);
@@ -56,14 +80,22 @@ export default function Home() {
     return collapseUnchanged(allDiffRows, 2);
   }, [allDiffRows, onlyChanges]);
   const changeGroups = useMemo(() => groupExplanation(explanation), [explanation]);
-  // Generic keyword flags, plus the known traps for this specific dialect pair.
-  const flags = useMemo(() => {
-    const generic = reviewNotes(explanation);
-    const specific = pairGotchas(sourceLang, targetLang);
-    return Array.from(new Set([...specific, ...generic]));
-  }, [explanation, sourceLang, targetLang]);
+  const pasteInfo = useMemo(() => inspectPaste(inputCode), [inputCode]);
+  const flags = useMemo(
+    () =>
+      collectIssues({
+        explanation,
+        sourceLang,
+        targetLang,
+        inputCode: diffBase,
+        outputCode,
+        modelPitfalls: pitfalls
+      }),
+    [explanation, sourceLang, targetLang, diffBase, outputCode, pitfalls]
+  );
   const turnstileBox = useRef(null);
   const turnstileId = useRef(null);
+  const inputRef = useRef(null);
   const applyUsage = (data) => {
     if (typeof data?.remaining === "number") setRemaining(data.remaining);
   };
@@ -83,8 +115,28 @@ export default function Home() {
     const to = params.get("to");
     if (from && LANGUAGES.includes(from)) setSourceLang(from);
     if (to && LANGUAGES.includes(to)) setTargetLang(to);
+    const otherPair =
+      (from && from !== HOME_EXAMPLE.source) || (to && to !== HOME_EXAMPLE.target);
+    if (otherPair) {
+      setInputCode("");
+      setOutputCode("");
+      setDiffBase("");
+      setShowingExample(false);
+    }
+    if (window.location.hash === "#translator") {
+      requestAnimationFrame(() => {
+        document.getElementById("translator")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        inputRef.current?.focus();
+      });
+    }
     const prefs = loadPrefs();
-    if (prefs.viewMode === "code" || prefs.viewMode === "diff") setViewMode(prefs.viewMode);
+    // Keep the canned sample on Result view. Restore Diff only after a real run
+    // or when arriving for a different language pair.
+    if (!otherPair) {
+      setViewMode("code");
+    } else if (prefs.viewMode === "code" || prefs.viewMode === "diff") {
+      setViewMode(prefs.viewMode);
+    }
     if (typeof prefs.onlyChanges === "boolean") setOnlyChanges(prefs.onlyChanges);
     if (prefs.style === "idiomatic" || prefs.style === "literal") setStyle(prefs.style);
     setHistory(loadHistory());
@@ -132,7 +184,13 @@ export default function Home() {
     const tgtLang = override?.targetLang ?? targetLang;
     const code = override?.inputCode ?? inputCode;
     if (!code.trim()) return;
+    if (inspectPaste(code).tooLong) {
+      setPaywallReason("size");
+      setShowPaywall(true);
+      return;
+    }
     if (remaining === 0) {
+      setPaywallReason("limit");
       setShowPaywall(true);
       return;
     }
@@ -143,6 +201,7 @@ export default function Home() {
     setLoading(true);
     setOutputCode("");
     setExplanation([]);
+    setPitfalls([]);
     try {
       const res = await fetch("/api/convert", {
         method: "POST",
@@ -160,13 +219,21 @@ export default function Home() {
       applyUsage(data);
       resetTurnstile();
       if (data.error === "Daily free limit reached.") {
+        setPaywallReason("limit");
+        setShowPaywall(true);
+        return;
+      }
+      if (data.code === SIZE_LIMIT_CODE) {
+        setPaywallReason("size");
         setShowPaywall(true);
         return;
       }
       if (data.error) throw new Error(data.error);
       setOutputCode(data.convertedCode);
       setExplanation(data.explanation || []);
+      setPitfalls(Array.isArray(data.pitfalls) ? data.pitfalls : []);
       setDiffBase(code);
+      setShowingExample(false);
       setHistory(
         saveHistoryEntry({
           sourceLang: srcLang,
@@ -174,6 +241,7 @@ export default function Home() {
           inputCode: code,
           outputCode: data.convertedCode,
           explanation: data.explanation || [],
+          pitfalls: Array.isArray(data.pitfalls) ? data.pitfalls : [],
           style: override?.style ?? style
         })
       );
@@ -226,7 +294,9 @@ export default function Home() {
     setInputCode(entry.inputCode);
     setOutputCode(entry.outputCode);
     setExplanation(entry.explanation || []);
+    setPitfalls(entry.pitfalls || []);
     setDiffBase(entry.inputCode);
+    setShowingExample(false);
     setShowHistory(false);
   };
   // Costs one of the daily uses, unlike restoreEntry which is free.
@@ -264,7 +334,12 @@ export default function Home() {
     const onKeyDown = (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
         event.preventDefault();
-        if (!loading && inputCode.trim() && remaining !== null) handleConvert();
+        if (!loading && inputCode.trim() && remaining !== null && !inspectPaste(inputCode).tooLong) {
+          handleConvert();
+        } else if (inspectPaste(inputCode).tooLong) {
+          setPaywallReason("size");
+          setShowPaywall(true);
+        }
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -357,7 +432,10 @@ export default function Home() {
             Free Daily Uses: <strong className="text-indigo-400">{remainingLabel}</strong>
           </span>
           <button
-            onClick={() => setShowPaywall(true)}
+            onClick={() => {
+              setPaywallReason(pasteInfo.tooLong ? "size" : "limit");
+              setShowPaywall(true);
+            }}
             className="bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition"
           >
             <Zap className="w-4 h-4" /> Go Pro ($7)
@@ -365,7 +443,7 @@ export default function Home() {
         </div>
       </header>
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 flex flex-col gap-6">
-        <div className="text-center py-4">
+        <div className="text-center py-2">
           <h1 className="text-3xl font-extrabold text-white sm:text-4xl">
             Instant SQL & Code Translator
           </h1>
@@ -383,9 +461,12 @@ export default function Home() {
             </li>
             <li className="flex items-center gap-1.5">
               <Check className="w-3.5 h-3.5 text-emerald-400" />
-              Diff view and pitfall warnings
+              Diff view + silent pitfall warnings
             </li>
           </ul>
+          <p className="mt-2 text-xs text-slate-500">
+            Built for developers migrating Oracle, MySQL, and legacy VBA code.
+          </p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
           <div className="flex items-center gap-3">
@@ -413,90 +494,13 @@ export default function Home() {
             </select>
           </div>
         </div>
-        <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex flex-col gap-4">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-            <span className="text-xs uppercase font-semibold text-slate-500 sm:w-24 shrink-0">
-              Style:
-            </span>
-            <div className="flex items-center rounded-lg border border-slate-700 overflow-hidden self-start">
-              <button
-                type="button"
-                onClick={() => changeStyle("idiomatic")}
-                aria-pressed={style === "idiomatic"}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition ${
-                  style === "idiomatic"
-                    ? "bg-indigo-600 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                Idiomatic
-              </button>
-              <button
-                type="button"
-                onClick={() => changeStyle("literal")}
-                aria-pressed={style === "literal"}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition ${
-                  style === "literal"
-                    ? "bg-indigo-600 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                <AlignLeft className="w-3.5 h-3.5" />
-                Literal
-              </button>
-            </div>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              {style === "idiomatic"
-                ? "Rewrites into target-native patterns — vectorised pandas, set-based SQL. Best performance."
-                : "Preserves the original structure line-for-line, loops included. Best for review and audit."}
-            </p>
-          </div>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 border-t border-slate-800 pt-4">
-            <span className="text-xs uppercase font-semibold text-slate-500 sm:w-24 shrink-0">
-              Schema:
-            </span>
-            <button
-              type="button"
-              onClick={() => setShowSchemaNote((open) => !open)}
-              aria-expanded={showSchemaNote}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-dashed border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600 transition self-start"
-            >
-              <Database className="w-3.5 h-3.5" />
-              Add table schema
-              <span className="text-[10px] uppercase tracking-wide bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">
-                Planned
-              </span>
-            </button>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Paste a CREATE TABLE so column names and types stop being guesses.
-            </p>
-          </div>
-          {showSchemaNote && (
-            <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 text-xs text-slate-400 leading-relaxed flex flex-col gap-2">
-              <p className="text-slate-300 font-medium">Not built yet — here is the honest status.</p>
-              <p>
-                Right now the converter only sees the code you paste, so when your SQL
-                references a column it cannot verify, it infers a sensible type. Feeding it
-                your real DDL would remove that guesswork.
-              </p>
-              <p>
-                It is the next substantial thing on the list. It is not live because a schema
-                eats into the same size budget as your code, and doing it properly means
-                raising that budget first.
-              </p>
-              <p className="text-slate-500">
-                No email capture here, and no waitlist. When it ships it will simply appear.
-              </p>
-            </div>
-          )}
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1">
+        <div id="translator" className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 scroll-mt-24">
           <div className="flex flex-col bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
             <div className="bg-slate-800/50 px-4 py-2 border-b border-slate-800 text-xs font-semibold text-slate-400">
               ORIGINAL CODE ({sourceLang})
             </div>
             <textarea
+              ref={inputRef}
               value={inputCode}
               onChange={(e) => setInputCode(e.target.value)}
               placeholder="Paste code or SQL script here..."
@@ -506,7 +510,7 @@ export default function Home() {
               <div ref={turnstileBox} className="min-h-[65px]" />
               <button
                 onClick={() => handleConvert()}
-                disabled={loading || !inputCode.trim() || remaining === null}
+                disabled={loading || !inputCode.trim() || remaining === null || pasteInfo.tooLong}
                 className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold px-5 py-2 rounded-lg flex items-center justify-center gap-2 transition"
               >
                 {loading ? "Translating..." : "Translate Code"}
@@ -520,7 +524,7 @@ export default function Home() {
           <div className="flex flex-col bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
             <div className="bg-slate-800/50 px-4 py-2 border-b border-slate-800 text-xs font-semibold text-slate-400 flex justify-between items-center">
               <span>MIGRATED CODE ({targetLang})</span>
-              {outputCode && (
+              {outputCode && !showingExample && (
                 <div className="flex items-center gap-3">
                   <div className="flex items-center rounded-md border border-slate-700 overflow-hidden">
                     <button
@@ -661,6 +665,193 @@ export default function Home() {
             )}
           </div>
         </div>
+        {showingExample &&
+          sourceLang === HOME_EXAMPLE.source &&
+          targetLang === HOME_EXAMPLE.target && (
+          <p className="text-xs text-slate-500 -mt-3">
+            Example: Oracle → PostgreSQL — edit and re-translate anytime.
+          </p>
+        )}
+        <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex flex-col gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <span className="text-xs uppercase font-semibold text-slate-500 sm:w-24 shrink-0">
+              Style:
+            </span>
+            <div className="flex items-center rounded-lg border border-slate-700 overflow-hidden self-start">
+              <button
+                type="button"
+                onClick={() => changeStyle("idiomatic")}
+                aria-pressed={style === "idiomatic"}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition ${
+                  style === "idiomatic"
+                    ? "bg-indigo-600 text-white"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Idiomatic
+              </button>
+              <button
+                type="button"
+                onClick={() => changeStyle("literal")}
+                aria-pressed={style === "literal"}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition ${
+                  style === "literal"
+                    ? "bg-indigo-600 text-white"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <AlignLeft className="w-3.5 h-3.5" />
+                Literal
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              {style === "idiomatic"
+                ? "Rewrites into target-native patterns — vectorised pandas, set-based SQL. Best performance."
+                : "Preserves the original structure line-for-line, loops included. Best for review and audit."}
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 border-t border-slate-800 pt-4">
+            <span className="text-xs uppercase font-semibold text-slate-500 sm:w-24 shrink-0">
+              Schema:
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowSchemaNote((open) => !open)}
+              aria-expanded={showSchemaNote}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-dashed border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600 transition self-start"
+            >
+              <Database className="w-3.5 h-3.5" />
+              Add table schema
+              <span className="text-[10px] uppercase tracking-wide bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">
+                Planned
+              </span>
+            </button>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Paste a CREATE TABLE so column names and types stop being guesses.
+            </p>
+          </div>
+          {showSchemaNote && (
+            <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 text-xs text-slate-400 leading-relaxed flex flex-col gap-2">
+              <p className="text-slate-300 font-medium">Not built yet — here is the honest status.</p>
+              <p>
+                Right now the converter only sees the code you paste, so when your SQL
+                references a column it cannot verify, it infers a sensible type. Feeding it
+                your real DDL would remove that guesswork.
+              </p>
+              <p>
+                It is the next substantial thing on the list. It is not live because a schema
+                eats into the same size budget as your code, and doing it properly means
+                raising that budget first.
+              </p>
+              <p className="text-slate-500">
+                No email capture here, and no waitlist. When it ships it will simply appear.
+              </p>
+            </div>
+          )}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 border-t border-slate-800 pt-4">
+            <span className="text-xs uppercase font-semibold text-slate-500 sm:w-24 shrink-0">
+              Folder:
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowFolderNote((open) => !open)}
+              aria-expanded={showFolderNote}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-dashed border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600 transition self-start"
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+              Upload a folder
+              <span className="text-[10px] uppercase tracking-wide bg-indigo-600/20 text-indigo-300 px-1.5 py-0.5 rounded">
+                Pro
+              </span>
+            </button>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Drop a folder of scripts. Free stays one paste at a time.
+            </p>
+          </div>
+          {showFolderNote && (
+            <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 text-xs text-slate-400 leading-relaxed flex flex-col gap-2">
+              <p className="text-slate-300 font-medium">Shown so you know it is on the list — it does not upload anything yet.</p>
+              <p>
+                A real folder drop would send every file through the same converter, and the
+                free Gemini key cannot take that. When Pro checkout is live, this button will
+                open a folder picker and convert one file at a time.
+              </p>
+              <p>
+                Nothing is read from your disk when you click this. There is no hidden file
+                input.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setPaywallReason("folder");
+                  setShowPaywall(true);
+                }}
+                className="self-start text-xs font-medium text-indigo-400 hover:text-indigo-300"
+              >
+                See Pro
+              </button>
+            </div>
+          )}
+        </div>
+        {pasteInfo.tooLong && (
+          <div className="bg-indigo-500/10 border border-indigo-500/40 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="flex-1">
+              <div className="text-sm font-semibold text-indigo-200">
+                This looks like a longer script ({pasteInfo.lineCount} lines)
+              </div>
+              <p className="text-xs text-indigo-200/70 mt-0.5">
+                Free converts one snippet at a time, up to {FREE_MAX_LINES} lines.
+                Split it into smaller pieces, or wait for Pro — longer scripts are on that list.
+                Folder upload is not part of this.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setPaywallReason("size");
+                setShowPaywall(true);
+              }}
+              className="shrink-0 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-3 py-1.5 rounded-lg"
+            >
+              See Pro
+            </button>
+          </div>
+        )}
+        {!pasteInfo.tooLong && pasteInfo.multiStatement && (
+          <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
+            <p className="flex-1 text-xs text-slate-400">
+              This looks like several statements. Free works best one snippet at a time.
+              Batches and folder upload will be Pro.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setPaywallReason("size");
+                setShowPaywall(true);
+              }}
+              className="shrink-0 text-xs font-medium text-indigo-400 hover:text-indigo-300"
+            >
+              See Pro
+            </button>
+          </div>
+        )}
+        {explanation.length > 0 && flags.length > 0 && (
+          <a
+            href="#worth-checking"
+            className="bg-amber-500/10 border border-amber-500/40 rounded-xl px-4 py-3 flex items-start gap-3 hover:border-amber-400/70 transition"
+          >
+            <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <div className="text-sm font-semibold text-amber-300">
+                {issuesSummary(flags.length)}
+              </div>
+              <p className="text-xs text-amber-200/70 mt-0.5">
+                These compile or run but can change results. Review the list below before you ship.
+              </p>
+            </div>
+          </a>
+        )}
         {explanation.length > 0 && (
           <div className="bg-slate-900 p-4 rounded-xl border border-slate-800">
             <h3 className="text-sm font-semibold text-indigo-400 mb-3">Key Changes Made:</h3>
@@ -816,16 +1007,26 @@ export default function Home() {
             <div className="w-12 h-12 bg-indigo-600/20 text-indigo-400 rounded-full flex items-center justify-center mx-auto">
               <Lock className="w-6 h-6" />
             </div>
-            <h2 className="text-xl font-bold text-white">Daily Free Limit Reached</h2>
+            <h2 className="text-xl font-bold text-white">
+              {paywallReason === "folder"
+                ? "Folder upload is a Pro feature"
+                : paywallReason === "size"
+                ? "This script is bigger than the free limit"
+                : "Daily Free Limit Reached"}
+            </h2>
             <p className="text-sm text-slate-400">
-              You have used your {DAILY_LIMIT} free conversions for today on this network. Come back tomorrow, or wait for Pro checkout.
+              {paywallReason === "folder"
+                ? "Free stays one paste at a time. A folder of scripts will convert file-by-file when Pro checkout is live — nothing is uploaded today."
+                : paywallReason === "size"
+                ? `Free converts one snippet up to ${FREE_MAX_LINES} lines. Split this paste, or wait for Pro for longer scripts and folder upload.`
+                : `You have used your ${DAILY_LIMIT} free conversions for today on this network. Come back tomorrow, or wait for Pro checkout.`}
             </p>
             <div className="bg-slate-800 p-4 rounded-xl text-left border border-slate-700">
               <div className="text-2xl font-black text-white">$7 <span className="text-xs font-normal text-slate-400">/ month</span></div>
               <ul className="text-xs text-slate-300 mt-2 space-y-1.5">
                 <li className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400" /> Unlimited daily conversions</li>
-                <li className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400" /> Support for scripts up to 5,000 lines</li>
-                <li className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400" /> Priority API response speed</li>
+                <li className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400" /> Longer scripts and multi-statement batches</li>
+                <li className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400" /> Upload a folder of scripts (one file at a time)</li>
               </ul>
             </div>
             <button
