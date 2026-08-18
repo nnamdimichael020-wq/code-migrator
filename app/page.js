@@ -22,11 +22,27 @@ const LANGUAGES = [
 ];
 const DAILY_LIMIT = 3;
 const TURNSTILE_SITE_KEY = "0x4AAAAAAEO2i1RSHJtRwNpP";
+// Static homepage sample — no API call, no quota. Keep this short so both
+// panes stay above the fold on a typical laptop.
+const HOME_EXAMPLE = {
+  source: "Oracle SQL",
+  target: "PostgreSQL",
+  input: `SELECT emp_id,
+       NVL(bonus, 0) AS bonus,
+       SYSDATE AS run_at
+FROM employees
+WHERE ROWNUM <= 5;`,
+  output: `SELECT emp_id,
+       COALESCE(bonus, 0) AS bonus,
+       CURRENT_TIMESTAMP AS run_at
+FROM employees
+LIMIT 5;`
+};
 export default function Home() {
-  const [sourceLang, setSourceLang] = useState("Oracle SQL");
-  const [targetLang, setTargetLang] = useState("PostgreSQL");
-  const [inputCode, setInputCode] = useState("");
-  const [outputCode, setOutputCode] = useState("");
+  const [sourceLang, setSourceLang] = useState(HOME_EXAMPLE.source);
+  const [targetLang, setTargetLang] = useState(HOME_EXAMPLE.target);
+  const [inputCode, setInputCode] = useState(HOME_EXAMPLE.input);
+  const [outputCode, setOutputCode] = useState(HOME_EXAMPLE.output);
   const [explanation, setExplanation] = useState([]);
   const [pitfalls, setPitfalls] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -35,7 +51,10 @@ export default function Home() {
   const [showPaywall, setShowPaywall] = useState(false);
   const [paywallReason, setPaywallReason] = useState("limit");
   const [turnstileToken, setTurnstileToken] = useState("");
-  const [viewMode, setViewMode] = useState("diff");
+  // Result view for the canned sample so the Diff chrome stays off until
+  // the visitor actually converts.
+  const [viewMode, setViewMode] = useState("code");
+  const [showingExample, setShowingExample] = useState(true);
   const [onlyChanges, setOnlyChanges] = useState(false);
   // "idiomatic" rewrites into target-native patterns; "literal" preserves the
   // source's structure line-for-line. Persisted, because it's a working habit.
@@ -49,7 +68,7 @@ export default function Home() {
   const [isMac, setIsMac] = useState(false);
   // The code the diff is against — frozen at conversion time, so editing the
   // input box afterwards can't silently rewrite the diff you're reading.
-  const [diffBase, setDiffBase] = useState("");
+  const [diffBase, setDiffBase] = useState(HOME_EXAMPLE.input);
   const allDiffRows = useMemo(() => {
     if (!outputCode) return [];
     return diffLines(diffBase, outputCode);
@@ -96,6 +115,14 @@ export default function Home() {
     const to = params.get("to");
     if (from && LANGUAGES.includes(from)) setSourceLang(from);
     if (to && LANGUAGES.includes(to)) setTargetLang(to);
+    const otherPair =
+      (from && from !== HOME_EXAMPLE.source) || (to && to !== HOME_EXAMPLE.target);
+    if (otherPair) {
+      setInputCode("");
+      setOutputCode("");
+      setDiffBase("");
+      setShowingExample(false);
+    }
     if (window.location.hash === "#translator") {
       requestAnimationFrame(() => {
         document.getElementById("translator")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -103,7 +130,13 @@ export default function Home() {
       });
     }
     const prefs = loadPrefs();
-    if (prefs.viewMode === "code" || prefs.viewMode === "diff") setViewMode(prefs.viewMode);
+    // Keep the canned sample on Result view. Restore Diff only after a real run
+    // or when arriving for a different language pair.
+    if (!otherPair) {
+      setViewMode("code");
+    } else if (prefs.viewMode === "code" || prefs.viewMode === "diff") {
+      setViewMode(prefs.viewMode);
+    }
     if (typeof prefs.onlyChanges === "boolean") setOnlyChanges(prefs.onlyChanges);
     if (prefs.style === "idiomatic" || prefs.style === "literal") setStyle(prefs.style);
     setHistory(loadHistory());
@@ -200,6 +233,7 @@ export default function Home() {
       setExplanation(data.explanation || []);
       setPitfalls(Array.isArray(data.pitfalls) ? data.pitfalls : []);
       setDiffBase(code);
+      setShowingExample(false);
       setHistory(
         saveHistoryEntry({
           sourceLang: srcLang,
@@ -262,6 +296,7 @@ export default function Home() {
     setExplanation(entry.explanation || []);
     setPitfalls(entry.pitfalls || []);
     setDiffBase(entry.inputCode);
+    setShowingExample(false);
     setShowHistory(false);
   };
   // Costs one of the daily uses, unlike restoreEntry which is free.
@@ -408,7 +443,7 @@ export default function Home() {
         </div>
       </header>
       <main className="flex-1 max-w-7xl w-full mx-auto p-6 flex flex-col gap-6">
-        <div className="text-center py-4">
+        <div className="text-center py-2">
           <h1 className="text-3xl font-extrabold text-white sm:text-4xl">
             Instant SQL & Code Translator
           </h1>
@@ -426,9 +461,12 @@ export default function Home() {
             </li>
             <li className="flex items-center gap-1.5">
               <Check className="w-3.5 h-3.5 text-emerald-400" />
-              Diff view and pitfall warnings
+              Diff view + silent pitfall warnings
             </li>
           </ul>
+          <p className="mt-2 text-xs text-slate-500">
+            Built for developers migrating Oracle, MySQL, and legacy VBA code.
+          </p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
           <div className="flex items-center gap-3">
@@ -455,128 +493,6 @@ export default function Home() {
               ))}
             </select>
           </div>
-        </div>
-        <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex flex-col gap-4">
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-            <span className="text-xs uppercase font-semibold text-slate-500 sm:w-24 shrink-0">
-              Style:
-            </span>
-            <div className="flex items-center rounded-lg border border-slate-700 overflow-hidden self-start">
-              <button
-                type="button"
-                onClick={() => changeStyle("idiomatic")}
-                aria-pressed={style === "idiomatic"}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition ${
-                  style === "idiomatic"
-                    ? "bg-indigo-600 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                <Sparkles className="w-3.5 h-3.5" />
-                Idiomatic
-              </button>
-              <button
-                type="button"
-                onClick={() => changeStyle("literal")}
-                aria-pressed={style === "literal"}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition ${
-                  style === "literal"
-                    ? "bg-indigo-600 text-white"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                <AlignLeft className="w-3.5 h-3.5" />
-                Literal
-              </button>
-            </div>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              {style === "idiomatic"
-                ? "Rewrites into target-native patterns — vectorised pandas, set-based SQL. Best performance."
-                : "Preserves the original structure line-for-line, loops included. Best for review and audit."}
-            </p>
-          </div>
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 border-t border-slate-800 pt-4">
-            <span className="text-xs uppercase font-semibold text-slate-500 sm:w-24 shrink-0">
-              Schema:
-            </span>
-            <button
-              type="button"
-              onClick={() => setShowSchemaNote((open) => !open)}
-              aria-expanded={showSchemaNote}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-dashed border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600 transition self-start"
-            >
-              <Database className="w-3.5 h-3.5" />
-              Add table schema
-              <span className="text-[10px] uppercase tracking-wide bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">
-                Planned
-              </span>
-            </button>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Paste a CREATE TABLE so column names and types stop being guesses.
-            </p>
-          </div>
-          {showSchemaNote && (
-            <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 text-xs text-slate-400 leading-relaxed flex flex-col gap-2">
-              <p className="text-slate-300 font-medium">Not built yet — here is the honest status.</p>
-              <p>
-                Right now the converter only sees the code you paste, so when your SQL
-                references a column it cannot verify, it infers a sensible type. Feeding it
-                your real DDL would remove that guesswork.
-              </p>
-              <p>
-                It is the next substantial thing on the list. It is not live because a schema
-                eats into the same size budget as your code, and doing it properly means
-                raising that budget first.
-              </p>
-              <p className="text-slate-500">
-                No email capture here, and no waitlist. When it ships it will simply appear.
-              </p>
-            </div>
-          )}
-          <div className="flex flex-col sm:flex-row sm:items-center gap-3 border-t border-slate-800 pt-4">
-            <span className="text-xs uppercase font-semibold text-slate-500 sm:w-24 shrink-0">
-              Folder:
-            </span>
-            <button
-              type="button"
-              onClick={() => setShowFolderNote((open) => !open)}
-              aria-expanded={showFolderNote}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-dashed border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600 transition self-start"
-            >
-              <FolderOpen className="w-3.5 h-3.5" />
-              Upload a folder
-              <span className="text-[10px] uppercase tracking-wide bg-indigo-600/20 text-indigo-300 px-1.5 py-0.5 rounded">
-                Pro
-              </span>
-            </button>
-            <p className="text-xs text-slate-500 leading-relaxed">
-              Drop a folder of scripts. Free stays one paste at a time.
-            </p>
-          </div>
-          {showFolderNote && (
-            <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 text-xs text-slate-400 leading-relaxed flex flex-col gap-2">
-              <p className="text-slate-300 font-medium">Shown so you know it is on the list — it does not upload anything yet.</p>
-              <p>
-                A real folder drop would send every file through the same converter, and the
-                free Gemini key cannot take that. When Pro checkout is live, this button will
-                open a folder picker and convert one file at a time.
-              </p>
-              <p>
-                Nothing is read from your disk when you click this. There is no hidden file
-                input.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setPaywallReason("folder");
-                  setShowPaywall(true);
-                }}
-                className="self-start text-xs font-medium text-indigo-400 hover:text-indigo-300"
-              >
-                See Pro
-              </button>
-            </div>
-          )}
         </div>
         <div id="translator" className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 scroll-mt-24">
           <div className="flex flex-col bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
@@ -608,7 +524,7 @@ export default function Home() {
           <div className="flex flex-col bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
             <div className="bg-slate-800/50 px-4 py-2 border-b border-slate-800 text-xs font-semibold text-slate-400 flex justify-between items-center">
               <span>MIGRATED CODE ({targetLang})</span>
-              {outputCode && (
+              {outputCode && !showingExample && (
                 <div className="flex items-center gap-3">
                   <div className="flex items-center rounded-md border border-slate-700 overflow-hidden">
                     <button
@@ -748,6 +664,135 @@ export default function Home() {
               </div>
             )}
           </div>
+        </div>
+        {showingExample &&
+          sourceLang === HOME_EXAMPLE.source &&
+          targetLang === HOME_EXAMPLE.target && (
+          <p className="text-xs text-slate-500 -mt-3">
+            Example: Oracle → PostgreSQL — edit and re-translate anytime.
+          </p>
+        )}
+        <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex flex-col gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+            <span className="text-xs uppercase font-semibold text-slate-500 sm:w-24 shrink-0">
+              Style:
+            </span>
+            <div className="flex items-center rounded-lg border border-slate-700 overflow-hidden self-start">
+              <button
+                type="button"
+                onClick={() => changeStyle("idiomatic")}
+                aria-pressed={style === "idiomatic"}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition ${
+                  style === "idiomatic"
+                    ? "bg-indigo-600 text-white"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Idiomatic
+              </button>
+              <button
+                type="button"
+                onClick={() => changeStyle("literal")}
+                aria-pressed={style === "literal"}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition ${
+                  style === "literal"
+                    ? "bg-indigo-600 text-white"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                <AlignLeft className="w-3.5 h-3.5" />
+                Literal
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              {style === "idiomatic"
+                ? "Rewrites into target-native patterns — vectorised pandas, set-based SQL. Best performance."
+                : "Preserves the original structure line-for-line, loops included. Best for review and audit."}
+            </p>
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 border-t border-slate-800 pt-4">
+            <span className="text-xs uppercase font-semibold text-slate-500 sm:w-24 shrink-0">
+              Schema:
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowSchemaNote((open) => !open)}
+              aria-expanded={showSchemaNote}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-dashed border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600 transition self-start"
+            >
+              <Database className="w-3.5 h-3.5" />
+              Add table schema
+              <span className="text-[10px] uppercase tracking-wide bg-slate-800 text-slate-400 px-1.5 py-0.5 rounded">
+                Planned
+              </span>
+            </button>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Paste a CREATE TABLE so column names and types stop being guesses.
+            </p>
+          </div>
+          {showSchemaNote && (
+            <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 text-xs text-slate-400 leading-relaxed flex flex-col gap-2">
+              <p className="text-slate-300 font-medium">Not built yet — here is the honest status.</p>
+              <p>
+                Right now the converter only sees the code you paste, so when your SQL
+                references a column it cannot verify, it infers a sensible type. Feeding it
+                your real DDL would remove that guesswork.
+              </p>
+              <p>
+                It is the next substantial thing on the list. It is not live because a schema
+                eats into the same size budget as your code, and doing it properly means
+                raising that budget first.
+              </p>
+              <p className="text-slate-500">
+                No email capture here, and no waitlist. When it ships it will simply appear.
+              </p>
+            </div>
+          )}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 border-t border-slate-800 pt-4">
+            <span className="text-xs uppercase font-semibold text-slate-500 sm:w-24 shrink-0">
+              Folder:
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowFolderNote((open) => !open)}
+              aria-expanded={showFolderNote}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-dashed border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600 transition self-start"
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+              Upload a folder
+              <span className="text-[10px] uppercase tracking-wide bg-indigo-600/20 text-indigo-300 px-1.5 py-0.5 rounded">
+                Pro
+              </span>
+            </button>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Drop a folder of scripts. Free stays one paste at a time.
+            </p>
+          </div>
+          {showFolderNote && (
+            <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 text-xs text-slate-400 leading-relaxed flex flex-col gap-2">
+              <p className="text-slate-300 font-medium">Shown so you know it is on the list — it does not upload anything yet.</p>
+              <p>
+                A real folder drop would send every file through the same converter, and the
+                free Gemini key cannot take that. When Pro checkout is live, this button will
+                open a folder picker and convert one file at a time.
+              </p>
+              <p>
+                Nothing is read from your disk when you click this. There is no hidden file
+                input.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setPaywallReason("folder");
+                  setShowPaywall(true);
+                }}
+                className="self-start text-xs font-medium text-indigo-400 hover:text-indigo-300"
+              >
+                See Pro
+              </button>
+            </div>
+          )}
         </div>
         {pasteInfo.tooLong && (
           <div className="bg-indigo-500/10 border border-indigo-500/40 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
