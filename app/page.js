@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Code2, Copy, Check, Sparkles, Zap, Lock, GitCompare, FileCode,
   Filter, History, Download, ChevronDown, Trash2, RotateCcw, AlertTriangle,
-  AlignLeft, Database
+  AlignLeft, Database, FolderOpen
 } from "lucide-react";
 import { diffLines, countChanges, collapseUnchanged } from "../lib/diff";
 import { groupExplanation } from "../lib/classify";
@@ -41,6 +41,7 @@ export default function Home() {
   // source's structure line-for-line. Persisted, because it's a working habit.
   const [style, setStyle] = useState("idiomatic");
   const [showSchemaNote, setShowSchemaNote] = useState(false);
+  const [showFolderNote, setShowFolderNote] = useState(false);
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [showCopyMenu, setShowCopyMenu] = useState(false);
@@ -185,6 +186,12 @@ export default function Home() {
       applyUsage(data);
       resetTurnstile();
       if (data.error === "Daily free limit reached.") {
+        setPaywallReason("limit");
+        setShowPaywall(true);
+        return;
+      }
+      if (data.code === SIZE_LIMIT_CODE) {
+        setPaywallReason("size");
         setShowPaywall(true);
         return;
       }
@@ -526,6 +533,50 @@ export default function Home() {
               </p>
             </div>
           )}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 border-t border-slate-800 pt-4">
+            <span className="text-xs uppercase font-semibold text-slate-500 sm:w-24 shrink-0">
+              Folder:
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowFolderNote((open) => !open)}
+              aria-expanded={showFolderNote}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-dashed border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600 transition self-start"
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+              Upload a folder
+              <span className="text-[10px] uppercase tracking-wide bg-indigo-600/20 text-indigo-300 px-1.5 py-0.5 rounded">
+                Pro
+              </span>
+            </button>
+            <p className="text-xs text-slate-500 leading-relaxed">
+              Drop a folder of scripts. Free stays one paste at a time.
+            </p>
+          </div>
+          {showFolderNote && (
+            <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 text-xs text-slate-400 leading-relaxed flex flex-col gap-2">
+              <p className="text-slate-300 font-medium">Shown so you know it is on the list — it does not upload anything yet.</p>
+              <p>
+                A real folder drop would send every file through the same converter, and the
+                free Gemini key cannot take that. When Pro checkout is live, this button will
+                open a folder picker and convert one file at a time.
+              </p>
+              <p>
+                Nothing is read from your disk when you click this. There is no hidden file
+                input.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setPaywallReason("folder");
+                  setShowPaywall(true);
+                }}
+                className="self-start text-xs font-medium text-indigo-400 hover:text-indigo-300"
+              >
+                See Pro
+              </button>
+            </div>
+          )}
         </div>
         <div id="translator" className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 scroll-mt-24">
           <div className="flex flex-col bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
@@ -726,7 +777,7 @@ export default function Home() {
           <div className="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
             <p className="flex-1 text-xs text-slate-400">
               This looks like several statements. Free works best one snippet at a time.
-              Batches of statements will be a Pro feature — not folder upload, just longer pastes.
+              Batches and folder upload will be Pro.
             </p>
             <button
               type="button"
@@ -911,16 +962,26 @@ export default function Home() {
             <div className="w-12 h-12 bg-indigo-600/20 text-indigo-400 rounded-full flex items-center justify-center mx-auto">
               <Lock className="w-6 h-6" />
             </div>
-            <h2 className="text-xl font-bold text-white">Daily Free Limit Reached</h2>
+            <h2 className="text-xl font-bold text-white">
+              {paywallReason === "folder"
+                ? "Folder upload is a Pro feature"
+                : paywallReason === "size"
+                ? "This script is bigger than the free limit"
+                : "Daily Free Limit Reached"}
+            </h2>
             <p className="text-sm text-slate-400">
-              You have used your {DAILY_LIMIT} free conversions for today on this network. Come back tomorrow, or wait for Pro checkout.
+              {paywallReason === "folder"
+                ? "Free stays one paste at a time. A folder of scripts will convert file-by-file when Pro checkout is live — nothing is uploaded today."
+                : paywallReason === "size"
+                ? `Free converts one snippet up to ${FREE_MAX_LINES} lines. Split this paste, or wait for Pro for longer scripts and folder upload.`
+                : `You have used your ${DAILY_LIMIT} free conversions for today on this network. Come back tomorrow, or wait for Pro checkout.`}
             </p>
             <div className="bg-slate-800 p-4 rounded-xl text-left border border-slate-700">
               <div className="text-2xl font-black text-white">$7 <span className="text-xs font-normal text-slate-400">/ month</span></div>
               <ul className="text-xs text-slate-300 mt-2 space-y-1.5">
                 <li className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400" /> Unlimited daily conversions</li>
-                <li className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400" /> Support for scripts up to 5,000 lines</li>
-                <li className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400" /> Priority API response speed</li>
+                <li className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400" /> Longer scripts and multi-statement batches</li>
+                <li className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400" /> Upload a folder of scripts (one file at a time)</li>
               </ul>
             </div>
             <button
