@@ -6,9 +6,10 @@ import {
   AlignLeft, Database
 } from "lucide-react";
 import { diffLines, countChanges, collapseUnchanged } from "../lib/diff";
-import { groupExplanation, reviewNotes } from "../lib/classify";
+import { groupExplanation } from "../lib/classify";
 import Link from "next/link";
-import { pairGotchas, PAIRS } from "../lib/pairs";
+import { PAIRS } from "../lib/pairs";
+import { collectIssues, issuesSummary } from "../lib/issues";
 import {
   loadHistory, saveHistoryEntry, clearHistory, loadPrefs, savePrefs,
   withComments, asDiffText, downloadText, extensionFor
@@ -26,6 +27,7 @@ export default function Home() {
   const [inputCode, setInputCode] = useState("");
   const [outputCode, setOutputCode] = useState("");
   const [explanation, setExplanation] = useState([]);
+  const [pitfalls, setPitfalls] = useState([]);
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [remaining, setRemaining] = useState(null);
@@ -56,14 +58,21 @@ export default function Home() {
     return collapseUnchanged(allDiffRows, 2);
   }, [allDiffRows, onlyChanges]);
   const changeGroups = useMemo(() => groupExplanation(explanation), [explanation]);
-  // Generic keyword flags, plus the known traps for this specific dialect pair.
-  const flags = useMemo(() => {
-    const generic = reviewNotes(explanation);
-    const specific = pairGotchas(sourceLang, targetLang);
-    return Array.from(new Set([...specific, ...generic]));
-  }, [explanation, sourceLang, targetLang]);
+  const flags = useMemo(
+    () =>
+      collectIssues({
+        explanation,
+        sourceLang,
+        targetLang,
+        inputCode: diffBase,
+        outputCode,
+        modelPitfalls: pitfalls
+      }),
+    [explanation, sourceLang, targetLang, diffBase, outputCode, pitfalls]
+  );
   const turnstileBox = useRef(null);
   const turnstileId = useRef(null);
+  const inputRef = useRef(null);
   const applyUsage = (data) => {
     if (typeof data?.remaining === "number") setRemaining(data.remaining);
   };
@@ -83,6 +92,12 @@ export default function Home() {
     const to = params.get("to");
     if (from && LANGUAGES.includes(from)) setSourceLang(from);
     if (to && LANGUAGES.includes(to)) setTargetLang(to);
+    if (window.location.hash === "#translator") {
+      requestAnimationFrame(() => {
+        document.getElementById("translator")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        inputRef.current?.focus();
+      });
+    }
     const prefs = loadPrefs();
     if (prefs.viewMode === "code" || prefs.viewMode === "diff") setViewMode(prefs.viewMode);
     if (typeof prefs.onlyChanges === "boolean") setOnlyChanges(prefs.onlyChanges);
@@ -143,6 +158,7 @@ export default function Home() {
     setLoading(true);
     setOutputCode("");
     setExplanation([]);
+    setPitfalls([]);
     try {
       const res = await fetch("/api/convert", {
         method: "POST",
@@ -166,6 +182,7 @@ export default function Home() {
       if (data.error) throw new Error(data.error);
       setOutputCode(data.convertedCode);
       setExplanation(data.explanation || []);
+      setPitfalls(Array.isArray(data.pitfalls) ? data.pitfalls : []);
       setDiffBase(code);
       setHistory(
         saveHistoryEntry({
@@ -174,6 +191,7 @@ export default function Home() {
           inputCode: code,
           outputCode: data.convertedCode,
           explanation: data.explanation || [],
+          pitfalls: Array.isArray(data.pitfalls) ? data.pitfalls : [],
           style: override?.style ?? style
         })
       );
@@ -226,6 +244,7 @@ export default function Home() {
     setInputCode(entry.inputCode);
     setOutputCode(entry.outputCode);
     setExplanation(entry.explanation || []);
+    setPitfalls(entry.pitfalls || []);
     setDiffBase(entry.inputCode);
     setShowHistory(false);
   };
@@ -491,12 +510,13 @@ export default function Home() {
             </div>
           )}
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1">
+        <div id="translator" className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 scroll-mt-24">
           <div className="flex flex-col bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
             <div className="bg-slate-800/50 px-4 py-2 border-b border-slate-800 text-xs font-semibold text-slate-400">
               ORIGINAL CODE ({sourceLang})
             </div>
             <textarea
+              ref={inputRef}
               value={inputCode}
               onChange={(e) => setInputCode(e.target.value)}
               placeholder="Paste code or SQL script here..."
@@ -661,6 +681,22 @@ export default function Home() {
             )}
           </div>
         </div>
+        {explanation.length > 0 && flags.length > 0 && (
+          <a
+            href="#worth-checking"
+            className="bg-amber-500/10 border border-amber-500/40 rounded-xl px-4 py-3 flex items-start gap-3 hover:border-amber-400/70 transition"
+          >
+            <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <div className="text-sm font-semibold text-amber-300">
+                {issuesSummary(flags.length)}
+              </div>
+              <p className="text-xs text-amber-200/70 mt-0.5">
+                These compile or run but can change results. Review the list below before you ship.
+              </p>
+            </div>
+          </a>
+        )}
         {explanation.length > 0 && (
           <div className="bg-slate-900 p-4 rounded-xl border border-slate-800">
             <h3 className="text-sm font-semibold text-indigo-400 mb-3">Key Changes Made:</h3>

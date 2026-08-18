@@ -31,7 +31,13 @@ const INSTRUCTION_TAIL = [
   "keep the faithful version and say why in the explanation.",
   "",
   "In `explanation`, list only what matters: behaviour that changes between the",
-  "two languages, and any place you departed from the source's structure."
+  "two languages, and any place you departed from the source's structure.",
+  "",
+  "Also return `pitfalls`: an array of silent behaviour differences that apply",
+  "to THIS conversion — things that compile or run but can change results",
+  "(NULL handling, ordering, empty-string semantics, integer division, 0- vs",
+  "1-based indexes). Empty array if none apply to the pasted code. Do not invent",
+  "generic warnings that are unrelated to this snippet."
 ];
 // IDIOMATIC (default). The rule that matters most: translate into what a senior
 // engineer in the TARGET language would write, not a line-by-line mirror of the
@@ -340,6 +346,10 @@ export async function POST(request) {
           properties: {
             convertedCode: { type: "string" },
             explanation: {
+              type: "array",
+              items: { type: "string" }
+            },
+            pitfalls: {
               type: "array",
               items: { type: "string" }
             }
