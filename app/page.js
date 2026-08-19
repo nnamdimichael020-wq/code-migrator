@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Code2, Copy, Check, Sparkles, Zap, Lock, GitCompare, FileCode,
   Filter, History, Download, ChevronDown, Trash2, RotateCcw, AlertTriangle,
-  AlignLeft, Database
+  AlignLeft, Database, Star, X
 } from "lucide-react";
 import { diffLines, countChanges, collapseUnchanged } from "../lib/diff";
 import { groupExplanation } from "../lib/classify";
@@ -76,6 +76,19 @@ export default function Home() {
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [showCopyMenu, setShowCopyMenu] = useState(false);
+  // Reviews: rotating widget list + the post-conversion prompt.
+  const [homeReviews, setHomeReviews] = useState([]);
+  const [reviewsConfigured, setReviewsConfigured] = useState(false);
+  const [reviewIndex, setReviewIndex] = useState(0);
+  const [reviewPaused, setReviewPaused] = useState(false);
+  const [showReviewPrompt, setShowReviewPrompt] = useState(false);
+  const [promptStars, setPromptStars] = useState(0);
+  const [promptMessage, setPromptMessage] = useState("");
+  const [promptName, setPromptName] = useState("");
+  const [promptBusy, setPromptBusy] = useState(false);
+  const [promptError, setPromptError] = useState("");
+  const reviewSource = useRef("");
+  const reviewTarget = useRef("");
   // Set after mount only, so the server and first client render agree.
   const [isMac, setIsMac] = useState(false);
   // The code the diff is against — frozen at conversion time, so editing the
@@ -161,6 +174,34 @@ export default function Home() {
       })
       .catch(() => setRemaining(DAILY_LIMIT));
   }, []);
+  // Load reviews once for the widget — not on every rotation tick.
+  useEffect(() => {
+    fetch("/api/reviews", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.configured) setReviewsConfigured(true);
+        if (Array.isArray(data?.reviews)) setHomeReviews(data.reviews);
+      })
+      .catch(() => {});
+  }, []);
+  // Rotate the widget review every 6s; pause on hover.
+  useEffect(() => {
+    if (reviewPaused || homeReviews.length <= 1) return;
+    const id = setInterval(
+      () => setReviewIndex((i) => (i + 1) % homeReviews.length),
+      6000
+    );
+    return () => clearInterval(id);
+  }, [reviewPaused, homeReviews.length]);
+  // Escape closes the post-conversion prompt.
+  useEffect(() => {
+    if (!showReviewPrompt) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") setShowReviewPrompt(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showReviewPrompt]);
   useEffect(() => {
     const start = () => {
       if (!window.turnstile || !turnstileBox.current || turnstileId.current != null) return;
@@ -259,6 +300,7 @@ export default function Home() {
           schema: override?.schema ?? schemaText
         })
       );
+      maybeShowReviewPrompt(srcLang, tgtLang);
     } catch (err) {
       alert(err.message || "Error generating conversion. Please try again.");
     } finally {
@@ -335,6 +377,52 @@ export default function Home() {
     clearHistory();
     setHistory([]);
     setShowHistory(false);
+  };
+  // Shows the review prompt at most once per 24h per browser, and only
+  // after a successful conversion. Closing or submitting sets the flag, so
+  // re-translating in the same minute never re-nags.
+  const maybeShowReviewPrompt = (src, tgt) => {
+    try {
+      const last = Number(window.localStorage.getItem("codeshift.reviewPromptAt") || 0);
+      if (Date.now() - last < 24 * 60 * 60 * 1000) return;
+      window.localStorage.setItem("codeshift.reviewPromptAt", String(Date.now()));
+    } catch {
+      // Private mode: still show once per page load.
+    }
+    reviewSource.current = src;
+    reviewTarget.current = tgt;
+    setPromptStars(0);
+    setPromptMessage("");
+    setPromptName("");
+    setPromptError("");
+    setShowReviewPrompt(true);
+  };
+  const submitReviewPrompt = async () => {
+    if (promptStars < 1) return;
+    setPromptBusy(true);
+    setPromptError("");
+    try {
+      const res = await fetch("/api/reviews", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stars: promptStars,
+          message: promptMessage,
+          name: promptName,
+          sourceLang: reviewSource.current,
+          targetLang: reviewTarget.current
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not submit review.");
+      if (data.review) setHomeReviews((prev) => [data.review, ...prev]);
+      setPromptError("");
+      setTimeout(() => setShowReviewPrompt(false), 2000);
+    } catch (err) {
+      setPromptError(err.message || "Could not submit review.");
+    } finally {
+      setPromptBusy(false);
+    }
   };
   const relativeTime = (ts) => {
     const mins = Math.round((Date.now() - ts) / 60000);
