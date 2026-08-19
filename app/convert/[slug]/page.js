@@ -246,6 +246,11 @@ export default async function ConvertPage({ params }) {
           Automated conversion is a starting point, not a guarantee. Always review and test
           converted code before running it against production data. Page last reviewed {updated}.
         </p>
+        <p className="mt-3 text-xs text-slate-600">
+          <Link href="/reviews" className="text-indigo-400 hover:text-indigo-300">Leave a review</Link>
+          <span className="mx-2 text-slate-700">·</span>
+          <Link href="/feedback" className="text-indigo-400 hover:text-indigo-300">Send feedback</Link>
+        </p>
       </main>
     </div>
   );

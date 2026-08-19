@@ -78,6 +78,11 @@ export default function ConvertIndex() {
         >
           Open the converter
         </Link>
+        <p className="mt-4 text-xs text-slate-600">
+          <Link href="/reviews" className="text-indigo-400 hover:text-indigo-300">Leave a review</Link>
+          <span className="mx-2 text-slate-700">·</span>
+          <Link href="/feedback" className="text-indigo-400 hover:text-indigo-300">Send feedback</Link>
+        </p>
       </main>
     </div>
   );

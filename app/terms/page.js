@@ -84,7 +84,23 @@ export default function TermsPage() {
           We may suspend or block access that violates these rules, with or without notice.
         </p>
 
-        <h2 className={SECTION_TITLE}>6. Disclaimer of warranties</h2>
+        <h2 className={SECTION_TITLE}>6. Reviews</h2>
+        <p className={PARAGRAPH}>
+          By submitting a review you grant CodeShift AI permission to display it publicly on the
+          site — the rating, message, optional name and date. Reviews must not be illegal,
+          abusive, defamatory, misleading or infringing. We may edit or remove reviews at our
+          discretion, including spam and off-topic submissions. A review is one person&apos;s
+          experience of the tool; it does not change the disclaimers in these terms.
+        </p>
+
+        <h2 className={SECTION_TITLE}>7. Feedback</h2>
+        <p className={PARAGRAPH}>
+          Feedback you send through the form is provided as-is. We read it and try to respond,
+          but we make no guarantee of a response time, and no promise that any requested feature
+          will be built. Never include passwords, API keys or production data in a feedback note.
+        </p>
+
+        <h2 className={SECTION_TITLE}>8. Disclaimer of warranties</h2>
         <p className={PARAGRAPH}>
           The service is provided &ldquo;as is&rdquo; and &ldquo;as available&rdquo; without
           warranties of any kind, express or implied, including accuracy, fitness for a
@@ -92,7 +108,7 @@ export default function TermsPage() {
           code is error-free, secure, or suitable for your use case.
         </p>
 
-        <h2 className={SECTION_TITLE}>7. Limitation of liability</h2>
+        <h2 className={SECTION_TITLE}>9. Limitation of liability</h2>
         <p className={PARAGRAPH}>
           To the maximum extent permitted by law, CodeShift AI and its operators are not liable
           for any indirect, incidental, special, consequential or punitive damages — including
@@ -101,7 +117,7 @@ export default function TermsPage() {
           stop using it.
         </p>
 
-        <h2 className={SECTION_TITLE}>8. Changes to these terms</h2>
+        <h2 className={SECTION_TITLE}>10. Changes to these terms</h2>
         <p className={PARAGRAPH}>
           We may update these terms as the service evolves — for example, when the Pro plan and
           checkout launch. Changes take effect when posted on this page, and the
@@ -109,7 +125,7 @@ export default function TermsPage() {
           after a change means you accept the updated terms.
         </p>
 
-        <h2 className={SECTION_TITLE}>9. Contact</h2>
+        <h2 className={SECTION_TITLE}>11. Contact</h2>
         <p className={PARAGRAPH}>
           Questions about these terms can be sent to{" "}
           <a href="mailto:nnamdimichael020@gmail.com" className="text-indigo-400 hover:text-indigo-300">

@@ -87,6 +87,7 @@ export default function Home() {
   const [promptName, setPromptName] = useState("");
   const [promptBusy, setPromptBusy] = useState(false);
   const [promptError, setPromptError] = useState("");
+  const [promptDone, setPromptDone] = useState(false);
   const reviewSource = useRef("");
   const reviewTarget = useRef("");
   // Set after mount only, so the server and first client render agree.
@@ -395,6 +396,7 @@ export default function Home() {
     setPromptMessage("");
     setPromptName("");
     setPromptError("");
+    setPromptDone(false);
     setShowReviewPrompt(true);
   };
   const submitReviewPrompt = async () => {
@@ -416,8 +418,9 @@ export default function Home() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Could not submit review.");
       if (data.review) setHomeReviews((prev) => [data.review, ...prev]);
+      setPromptDone(true);
       setPromptError("");
-      setTimeout(() => setShowReviewPrompt(false), 2000);
+      setTimeout(() => setShowReviewPrompt(false), 2200);
     } catch (err) {
       setPromptError(err.message || "Could not submit review.");
     } finally {
@@ -452,6 +455,9 @@ export default function Home() {
   });
   const remainingLabel = remaining === null ? "…" : `${remaining}/${DAILY_LIMIT} remaining`;
   const shortcutLabel = isMac ? "⌘ + Enter" : "Ctrl + Enter";
+  const currentReview = homeReviews.length
+    ? homeReviews[reviewIndex % homeReviews.length]
+    : null;
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       <header id="top" className="sticky top-0 z-30 border-b border-slate-800 bg-slate-950/90 backdrop-blur px-4 py-3 sm:px-6">
@@ -462,6 +468,7 @@ export default function Home() {
           </a>
           <nav className="flex items-center gap-3 sm:gap-5 text-xs sm:text-sm text-slate-400 whitespace-nowrap" aria-label="Primary navigation">
             <a href="#guides" className="hover:text-white transition">Conversion Guides</a>
+            <Link href="/reviews" className="hover:text-white transition">Reviews</Link>
             <a href="#pricing" className="hover:text-white transition">Pricing</a>
             <a href="#faq" className="hover:text-white transition">FAQs</a>
           </nav>
@@ -872,6 +879,64 @@ export default function Home() {
             )}
           </>
         )}
+        {reviewsConfigured && (
+          <div
+            onMouseEnter={() => setReviewPaused(true)}
+            onMouseLeave={() => setReviewPaused(false)}
+            className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3"
+          >
+            {homeReviews.length === 0 ? (
+              <Link
+                href="/reviews"
+                className="flex items-center justify-between gap-3 text-xs text-slate-400 hover:text-slate-200 transition"
+              >
+                <span>Be the first to leave a review.</span>
+                <span className="text-indigo-400 shrink-0">Leave a review →</span>
+              </Link>
+            ) : (
+              <>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+                    What developers say
+                  </span>
+                  <Link
+                    href="/reviews"
+                    className="text-[11px] text-indigo-400 hover:text-indigo-300 shrink-0"
+                  >
+                    Leave a review →
+                  </Link>
+                </div>
+                <div key={reviewIndex} className="review-fade mt-2">
+                  <div className="flex items-center gap-1">
+                    {[1, 2, 3, 4, 5].map((n) => (
+                      <Star
+                        key={n}
+                        className={`w-3.5 h-3.5 ${
+                          n <= currentReview.stars
+                            ? "fill-amber-400 text-amber-400"
+                            : "text-slate-700"
+                        }`}
+                      />
+                    ))}
+                    <span className="ml-2 text-[11px] text-slate-500">
+                      {currentReview.displayName || "Anonymous"}
+                    </span>
+                  </div>
+                  {currentReview.message && (
+                    <p className="mt-1 text-xs text-slate-300 line-clamp-3">
+                      {currentReview.message}
+                    </p>
+                  )}
+                  {homeReviews.length > 1 && (
+                    <div className="mt-1.5 text-[10px] text-slate-600">
+                      {reviewIndex + 1} of {homeReviews.length}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        )}
         {pasteInfo.tooLong && (
           <div className="bg-indigo-500/10 border border-indigo-500/40 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
             <div className="flex-1">
@@ -1070,13 +1135,31 @@ export default function Home() {
         </div>
       </section>
       <footer className="max-w-6xl w-full mx-auto px-6 pb-10 pt-14">
-        <div className="border-t border-slate-800 pt-6 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-4">
+          <div className="flex-1">
+            <h3 className="text-sm font-semibold text-white">
+              Experiencing issues? Missing a feature? Less than you expected? Trouble converting?
+            </h3>
+            <p className="mt-1 text-xs text-slate-400">
+              Send a note to the developer — it goes straight to the inbox.
+            </p>
+          </div>
+          <Link
+            href="/feedback"
+            className="shrink-0 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold px-4 py-2 rounded-lg transition text-center"
+          >
+            Send a note to the developer
+          </Link>
+        </div>
+        <div className="border-t border-slate-800 pt-6 mt-6 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <div className="flex items-center gap-2 font-semibold text-slate-200"><Code2 className="w-4 h-4 text-indigo-400" />CodeShift AI</div>
             <p className="mt-2 text-xs text-slate-500">© {new Date().getFullYear()} CodeShift AI. Automated conversion is a starting point — review and test before production.</p>
           </div>
           <div className="flex flex-wrap gap-x-5 gap-y-2 text-xs">
             <Link href="/convert" className="text-slate-400 hover:text-indigo-400">Guides</Link>
+            <Link href="/reviews" className="text-slate-400 hover:text-indigo-400">Reviews</Link>
+            <Link href="/feedback" className="text-slate-400 hover:text-indigo-400">Feedback</Link>
             <a href="#pricing" className="text-slate-400 hover:text-indigo-400">Pricing</a>
             <a href="#faq" className="text-slate-400 hover:text-indigo-400">FAQ</a>
             <Link href="/privacy" className="text-slate-500 hover:text-slate-300">Privacy</Link>
@@ -1084,6 +1167,87 @@ export default function Home() {
           </div>
         </div>
       </footer>
+      {showReviewPrompt && (
+        <div
+          role="dialog"
+          aria-label="Rate this conversion"
+          className="fixed bottom-4 right-4 z-40 w-[min(92vw,22rem)] rounded-xl border border-slate-700 bg-slate-900 shadow-2xl p-4"
+        >
+          <div className="flex items-start justify-between gap-3">
+            <h3 className="text-sm font-bold text-white">How was this conversion?</h3>
+            <button
+              onClick={() => setShowReviewPrompt(false)}
+              aria-label="Close"
+              className="text-slate-500 hover:text-slate-300 p-0.5 rounded transition"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          {promptDone ? (
+            <p className="mt-3 text-sm text-emerald-400">
+              Thanks — your review was submitted.
+            </p>
+          ) : (
+            <>
+              <div className="mt-3 flex items-center gap-1">
+                {[1, 2, 3, 4, 5].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    aria-label={`Rate ${n} of 5 stars`}
+                    aria-pressed={promptStars >= n}
+                    onClick={() => setPromptStars(n)}
+                    className="p-0.5 rounded hover:bg-slate-800 transition"
+                  >
+                    <Star
+                      className={`w-5 h-5 ${
+                        promptStars >= n
+                          ? "fill-amber-400 text-amber-400"
+                          : "text-slate-600"
+                      }`}
+                    />
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={promptMessage}
+                onChange={(e) => setPromptMessage(e.target.value)}
+                rows={2}
+                maxLength={1000}
+                placeholder="Anything particularly good or wrong? (optional)"
+                className="mt-3 w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <input
+                value={promptName}
+                onChange={(e) => setPromptName(e.target.value)}
+                maxLength={60}
+                placeholder="Name (optional)"
+                className="mt-2 w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              {promptError && (
+                <p className="mt-2 text-xs text-rose-400">{promptError}</p>
+              )}
+              <div className="mt-3 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={submitReviewPrompt}
+                  disabled={promptBusy || promptStars < 1}
+                  className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold px-4 py-2 rounded-lg transition"
+                >
+                  {promptBusy ? "Submitting…" : "Submit"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowReviewPrompt(false)}
+                  className="text-xs text-slate-400 hover:text-slate-200 transition"
+                >
+                  Maybe later
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
       {showPaywall && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl max-w-md w-full shadow-2xl text-center flex flex-col gap-4">

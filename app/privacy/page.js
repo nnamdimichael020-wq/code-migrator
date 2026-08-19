@@ -54,6 +54,16 @@ export default function PrivacyPage() {
             conversion runs.
           </li>
           <li>
+            <span className={LIST_STRONG}>Reviews.</span> If you submit a review, the star rating,
+            message, optional display name, the language pair (if included) and a timestamp are
+            stored and shown publicly on the site.
+          </li>
+          <li>
+            <span className={LIST_STRONG}>Feedback form.</span> If you use the feedback form, your
+            name, email address, category and note are sent to the developer&apos;s inbox so the
+            message can be answered.
+          </li>
+          <li>
             <span className={LIST_STRONG}>Basic technical logs.</span> Cloudflare and the hosting
             layer may record standard request data (timestamps, network address, request paths,
             status codes) for operations, security and abuse prevention.
@@ -68,7 +78,25 @@ export default function PrivacyPage() {
           and we do not sell or rent your data to anyone.
         </p>
 
-        <h2 className={SECTION_TITLE}>3. Cookies and local storage</h2>
+        <h2 className={SECTION_TITLE}>3. Reviews</h2>
+        <p className={PARAGRAPH}>
+          Reviews are public by design: the rating, message, optional display name and date
+          appear on the Reviews page and in the rotating widget on the homepage. No account is
+          needed to leave one. We strip HTML from reviews, remove obvious spam, and can remove a
+          review on request (see contact details below). Reviews are kept while the service runs;
+          there is no automatic expiry.
+        </p>
+
+        <h2 className={SECTION_TITLE}>4. Feedback form</h2>
+        <p className={PARAGRAPH}>
+          Feedback submissions are delivered by email to the developer so issues and requests can
+          be answered. The email address you provide is used only to reply — it is not added to a
+          mailing list, and is not sold or shared. Feedback emails are kept in the developer&apos;s
+          inbox like ordinary email and can be deleted on request. Never include passwords, API
+          keys or production data in a feedback note.
+        </p>
+
+        <h2 className={SECTION_TITLE}>5. Cookies and local storage</h2>
         <ul className={LIST}>
           <li>
             <span className={LIST_STRONG}>A quota cookie (<code className="font-mono text-xs">cs_vid</code>).</span>{" "}
@@ -83,15 +111,20 @@ export default function PrivacyPage() {
           </li>
         </ul>
 
-        <h2 className={SECTION_TITLE}>4. Third parties</h2>
+        <h2 className={SECTION_TITLE}>6. Third parties</h2>
         <ul className={LIST}>
           <li>
             <span className={LIST_STRONG}>Cloudflare</span> hosts the site (Workers/Pages),
-            provides the key-value store used for quota counters, and powers Turnstile.
+            provides the key-value store used for quota counters and reviews, and powers
+            Turnstile.
           </li>
           <li>
             <span className={LIST_STRONG}>Google Gemini API</span> performs the actual code
             conversion. Snippets are transmitted to Google for that purpose.
+          </li>
+          <li>
+            <span className={LIST_STRONG}>Resend</span> (or the configured transactional email
+            provider) delivers feedback form submissions to the developer&apos;s inbox.
           </li>
           <li>
             <span className={LIST_STRONG}>Payment provider (future).</span> If and when the Pro
@@ -101,19 +134,19 @@ export default function PrivacyPage() {
           </li>
         </ul>
 
-        <h2 className={SECTION_TITLE}>5. Your rights and contact</h2>
+        <h2 className={SECTION_TITLE}>7. Your rights and contact</h2>
         <p className={PARAGRAPH}>
           You can stop us processing your pasted code at any time by simply not using the
           converter — there is no account to delete. You can clear your browser&apos;s local
-          storage and cookies at any time to remove history, preferences and the quota cookie. If
-          you have questions about this policy or your data, contact us at{" "}
+          storage and cookies at any time to remove history, preferences and the quota cookie. To
+          ask for a review to be removed or a feedback email deleted, contact us at{" "}
           <a href="mailto:nnamdimichael020@gmail.com" className="text-indigo-400 hover:text-indigo-300">
             nnamdimichael020@gmail.com
           </a>
           .
         </p>
 
-        <h2 className={SECTION_TITLE}>6. Changes</h2>
+        <h2 className={SECTION_TITLE}>8. Changes</h2>
         <p className={PARAGRAPH}>
           If the service changes how data is processed, this page will be updated and the
           &ldquo;Last reviewed&rdquo; date above will move. Continued use of the service after a
