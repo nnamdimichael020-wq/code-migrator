@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { inspectPaste, sizeLimitPayload } from "../../../lib/limits.js";
 const DAILY_LIMIT = 3;
+// Optional schema context (DDL) sent alongside the code. Capped well under
+// the free token budget so a giant CREATE script can't burn the quota.
+const SCHEMA_MAX_CHARS = 8000;
 const MODELS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.1-flash-lite"];
 const ALLOWED_LANGUAGES = [
   "PostgreSQL",
@@ -277,10 +280,20 @@ export async function GET(request) {
 export async function POST(request) {
   const visitor = readVisitorId(request);
   try {
-        const { sourceLang, targetLang, code, turnstileToken, style } = await request.json();
+        const { sourceLang, targetLang, code, turnstileToken, style, schema } = await request.json();
         // Unknown or missing style falls back to idiomatic rather than erroring,
         // so an older cached client keeps working after a deploy.
         const conversionStyle = STYLES.includes(style) ? style : "idiomatic";
+        // Optional schema/DDL context. Missing, empty or non-string values are
+        // simply ignored so the endpoint stays backward compatible.
+        const schemaText = typeof schema === "string" ? schema.trim() : "";
+        if (schemaText.length > SCHEMA_MAX_CHARS) {
+          return jsonWithUsage(
+            { error: `Schema context is too long. Keep it under ${SCHEMA_MAX_CHARS} characters.` },
+            visitor,
+            400
+          );
+        }
         if (!code || !sourceLang || !targetLang) {
       return jsonWithUsage({ error: "Missing required fields" }, visitor, 400);
     }
@@ -330,7 +343,11 @@ export async function POST(request) {
     const requestBody = {
       store: false,
       system_instruction: buildInstruction(conversionStyle),
-      input: `Convert this code from ${sourceLang} to ${targetLang}.\n\nCode:\n${code}`,
+      input:
+        `Convert this code from ${sourceLang} to ${targetLang}.\n\nCode:\n${code}` +
+        (schemaText
+          ? `\n\nTable schema (DDL) for reference — use its real types, columns and names where they apply:\n${schemaText}`
+          : ""),
       response_format: {
         type: "text",
         mime_type: "application/json",

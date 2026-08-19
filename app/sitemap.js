@@ -14,6 +14,8 @@ export default function sitemap() {
       lastModified: now,
       changeFrequency: "monthly",
       priority: pair.parent ? 0.7 : 0.8
-    }))
+    })),
+    { url: `${BASE}/privacy`, lastModified: now, changeFrequency: "yearly", priority: 0.2 },
+    { url: `${BASE}/terms`, lastModified: now, changeFrequency: "yearly", priority: 0.2 }
   ];
 }

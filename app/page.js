@@ -38,6 +38,16 @@ WHERE ROWNUM <= 5;`,
 FROM employees
 LIMIT 5;`
 };
+// Static "what you get" teaser for the canned example, computed once with the
+// same diff engine the live tool uses so the preview always matches the real
+// Diff view. No API call, no quota.
+const EXAMPLE_DIFF = diffLines(HOME_EXAMPLE.input, HOME_EXAMPLE.output);
+const EXAMPLE_STATS = countChanges(EXAMPLE_DIFF);
+const EXAMPLE_PITFALLS = [
+  "ROWNUM filters before ORDER BY in Oracle; LIMIT applies after in PostgreSQL — a naive swap can silently return different rows.",
+  "Oracle treats '' as NULL; PostgreSQL does not. IS NULL checks can flip behaviour.",
+  "SYSDATE carries a time; CURRENT_DATE does not — use NOW() when the time matters."
+];
 export default function Home() {
   const [sourceLang, setSourceLang] = useState(HOME_EXAMPLE.source);
   const [targetLang, setTargetLang] = useState(HOME_EXAMPLE.target);
@@ -59,7 +69,10 @@ export default function Home() {
   // "idiomatic" rewrites into target-native patterns; "literal" preserves the
   // source's structure line-for-line. Persisted, because it's a working habit.
   const [style, setStyle] = useState("idiomatic");
-  const [showSchemaNote, setShowSchemaNote] = useState(false);
+  // Optional schema/DDL context sent with the conversion. Collapsed by
+  // default so the translator stays the hero of the page.
+  const [showSchema, setShowSchema] = useState(false);
+  const [schemaText, setSchemaText] = useState("");
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
   const [showCopyMenu, setShowCopyMenu] = useState(false);
@@ -211,7 +224,8 @@ export default function Home() {
           targetLang: tgtLang,
           code,
           turnstileToken,
-          style: override?.style ?? style
+          style: override?.style ?? style,
+          schema: override?.schema ?? schemaText
         }),
       });
       const data = await res.json();
@@ -241,7 +255,8 @@ export default function Home() {
           outputCode: data.convertedCode,
           explanation: data.explanation || [],
           pitfalls: Array.isArray(data.pitfalls) ? data.pitfalls : [],
-          style: override?.style ?? style
+          style: override?.style ?? style,
+          schema: override?.schema ?? schemaText
         })
       );
     } catch (err) {
@@ -295,6 +310,7 @@ export default function Home() {
     setExplanation(entry.explanation || []);
     setPitfalls(entry.pitfalls || []);
     setDiffBase(entry.inputCode);
+    setSchemaText(entry.schema || "");
     setShowingExample(false);
     setShowHistory(false);
   };
@@ -303,6 +319,7 @@ export default function Home() {
     setSourceLang(entry.sourceLang);
     setTargetLang(entry.targetLang);
     setInputCode(entry.inputCode);
+    setSchemaText(entry.schema || "");
     setShowHistory(false);
     const entryStyle = entry.style === "literal" ? "literal" : "idiomatic";
     changeStyle(entryStyle);
@@ -310,7 +327,8 @@ export default function Home() {
       sourceLang: entry.sourceLang,
       targetLang: entry.targetLang,
       inputCode: entry.inputCode,
-      style: entryStyle
+      style: entryStyle,
+      schema: entry.schema || ""
     });
   };
   const removeHistory = () => {
@@ -363,6 +381,76 @@ export default function Home() {
             <span className="hidden sm:inline text-slate-400">
               Free Daily Uses: <strong className="text-indigo-400">{remainingLabel}</strong>
             </span>
+            {history.length > 0 && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowHistory((open) => !open)}
+                  aria-expanded={showHistory}
+                  className="flex items-center gap-1.5 text-slate-400 hover:text-slate-200 transition px-2.5 py-1.5 rounded-lg border border-slate-800"
+                >
+                  <History className="w-4 h-4" />
+                  History ({history.length})
+                </button>
+                {showHistory && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setShowHistory(false)} />
+                    <div className="absolute right-0 mt-2 w-80 max-w-[90vw] bg-slate-900 border border-slate-700 rounded-xl shadow-2xl z-20 overflow-hidden">
+                      <div className="px-4 py-2.5 border-b border-slate-800 flex items-center justify-between">
+                        <span className="text-xs font-semibold text-slate-300">
+                          Recent conversions
+                        </span>
+                        <button
+                          onClick={removeHistory}
+                          className="flex items-center gap-1 text-[11px] text-slate-500 hover:text-rose-400 transition"
+                        >
+                          <Trash2 className="w-3 h-3" /> Clear
+                        </button>
+                      </div>
+                      <div className="max-h-80 overflow-y-auto divide-y divide-slate-800/70">
+                        {history.map((entry) => (
+                          <div key={entry.id} className="px-4 py-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-medium text-slate-200">
+                                {entry.sourceLang} → {entry.targetLang}
+                                <span className="ml-1.5 text-[10px] text-slate-500">
+                                  {entry.style === "literal" ? "Literal" : "Idiomatic"} ·{" "}
+                                  {relativeTime(entry.at)}
+                                </span>
+                              </span>
+                              <div className="flex items-center gap-0.5 shrink-0">
+                                <button
+                                  onClick={() => restoreEntry(entry)}
+                                  title="Restore result (free)"
+                                  className="p-1 rounded text-slate-400 hover:text-indigo-300 hover:bg-slate-800 transition"
+                                >
+                                  <RotateCcw className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => rerunEntry(entry)}
+                                  title="Re-run conversion (uses 1 free use)"
+                                  className="p-1 rounded text-slate-400 hover:text-emerald-300 hover:bg-slate-800 transition"
+                                >
+                                  <Sparkles className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </div>
+                            <p className="mt-1 font-mono text-[10px] text-slate-500 truncate">
+                              {entry.inputCode.split("\n")[0]}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="px-4 py-2 border-t border-slate-800 bg-slate-950/40">
+                        <p className="text-[10px] text-slate-600">
+                          Saved in this browser only. Restore is free; Re-run costs one daily
+                          conversion.
+                        </p>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
             <button
               onClick={() => {
                 setPaywallReason(pasteInfo.tooLong ? "size" : "limit");
@@ -399,7 +487,7 @@ export default function Home() {
           </ul>
           <p className="mt-2 text-xs text-slate-500">
             Built for developers migrating Oracle, MySQL, and legacy VBA code.
-            <a href="#guides" className="ml-2 text-indigo-400 hover:text-indigo-300">Browse conversion guides →</a>
+            <a href="/convert" className="ml-2 text-indigo-400 hover:text-indigo-300">Browse conversion guides →</a>
           </p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center bg-slate-900 p-4 rounded-xl border border-slate-800">
@@ -439,15 +527,34 @@ export default function Home() {
           <span className="hidden sm:block h-5 border-l border-slate-800" />
           <div className="flex items-center gap-2">
             <span className="text-xs uppercase font-semibold text-slate-500">Schema</span>
-            <button type="button" onClick={() => setShowSchemaNote((open) => !open)} aria-expanded={showSchemaNote} className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition">
-              <Database className="w-3.5 h-3.5" /> Planned
+            <button
+              type="button"
+              onClick={() => setShowSchema((open) => !open)}
+              aria-expanded={showSchema}
+              className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition"
+            >
+              <Database className="w-3.5 h-3.5" /> Optional
+              <ChevronDown className={`w-3 h-3 transition ${showSchema ? "rotate-180" : ""}`} />
             </button>
           </div>
           <span className="text-xs text-slate-500 sm:ml-auto">{style === "idiomatic" ? "Target-native output" : "Structure-preserving output"}</span>
         </div>
-        {showSchemaNote && (
-          <div className="-mt-3 rounded-lg border border-slate-700 bg-slate-900 px-4 py-3 text-xs text-slate-400">
-            Schema context is planned. It will accept DDL to improve type and column mapping; it is not active yet.
+        {showSchema && (
+          <div className="-mt-3 rounded-lg border border-slate-700 bg-slate-900 px-4 py-3">
+            <label htmlFor="schema-input" className="block text-xs font-medium text-slate-300">
+              Add table schema (optional)
+            </label>
+            <textarea
+              id="schema-input"
+              value={schemaText}
+              onChange={(e) => setSchemaText(e.target.value)}
+              placeholder="CREATE TABLE employees (emp_id NUMBER, bonus NUMBER, ...) — pasted DDL helps the converter map real types and column names."
+              className="mt-2 w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 font-mono text-xs text-slate-200 resize-y min-h-[80px] focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <p className="mt-1.5 text-[11px] text-slate-500">
+              Sent with your code to improve type and column mapping. Purely optional — leave it
+              empty to convert without schema context.
+            </p>
           </div>
         )}
         <div id="translator" className="grid grid-cols-1 lg:grid-cols-2 gap-6 flex-1 scroll-mt-24">
@@ -624,9 +731,49 @@ export default function Home() {
         {showingExample &&
           sourceLang === HOME_EXAMPLE.source &&
           targetLang === HOME_EXAMPLE.target && (
-          <p className="text-xs text-slate-500 -mt-3">
-            Example: Oracle → PostgreSQL — edit and re-translate anytime.
-          </p>
+          <>
+            <p className="text-xs text-slate-500 -mt-3">
+              Example: Oracle → PostgreSQL — edit and re-translate anytime.
+            </p>
+            {inputCode === HOME_EXAMPLE.input && outputCode === HOME_EXAMPLE.output && (
+              <div className="rounded-xl border border-slate-800 bg-slate-900/60 px-4 py-3">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                  <span className="font-semibold text-slate-300">What you get after translating:</span>
+                  <span className="text-emerald-400">+{EXAMPLE_STATS.added} added</span>
+                  <span className="text-rose-400">-{EXAMPLE_STATS.removed} removed</span>
+                </div>
+                <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1 font-mono text-xs">
+                  {EXAMPLE_DIFF.filter((row) => row.type === "removed" || row.type === "added")
+                    .slice(0, 8)
+                    .map((row, index) => (
+                      <div
+                        key={index}
+                        className={row.type === "added" ? "text-emerald-300" : "text-rose-300/90"}
+                      >
+                        {row.type === "added" ? "+ " : "- "}
+                        {row.text}
+                      </div>
+                    ))}
+                </div>
+                <div className="mt-3 border-t border-slate-800 pt-2.5">
+                  <div className="flex items-center gap-1.5">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-amber-400">
+                      Silent pitfalls in this example
+                    </span>
+                  </div>
+                  <ul className="mt-1.5 space-y-1.5 text-xs text-slate-400">
+                    {EXAMPLE_PITFALLS.map((pitfall, index) => (
+                      <li key={index} className="flex gap-1.5">
+                        <span className="text-amber-400/70 shrink-0">•</span>
+                        {pitfall}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            )}
+          </>
         )}
         {pasteInfo.tooLong && (
           <div className="bg-indigo-500/10 border border-indigo-500/40 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-3">
@@ -766,28 +913,57 @@ export default function Home() {
         </div>
       </section>
       <section id="pricing" className="max-w-6xl w-full mx-auto px-6 pt-14">
-        <div className="rounded-xl border border-indigo-500/30 bg-indigo-500/5 px-5 py-5 flex flex-col sm:flex-row sm:items-center gap-5">
-          <div className="flex-1">
-            <h2 className="text-xl font-bold text-white">Simple pricing</h2>
-            <p className="mt-1 text-sm text-slate-400">Free: {DAILY_LIMIT} conversions a day. Pro: $7/month when checkout launches.</p>
+        <h2 className="text-xl font-bold text-white">Pricing</h2>
+        <p className="mt-1 text-sm text-slate-400">Start free — no signup. Upgrade when you need more.</p>
+        <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="rounded-xl border border-slate-800 bg-slate-900 p-5 flex flex-col">
+            <h3 className="text-sm font-semibold text-white">Free</h3>
+            <div className="mt-1 text-2xl font-black text-white">$0</div>
+            <p className="mt-1 text-xs text-slate-500">No account, no credit card.</p>
+            <ul className="mt-4 space-y-1.5 text-xs text-slate-300 flex-1">
+              <li className="flex gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />{DAILY_LIMIT} conversions per day</li>
+              <li className="flex gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />Snippets up to {FREE_MAX_LINES} lines</li>
+              <li className="flex gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />Diff view, Key Changes and pitfall warnings</li>
+              <li className="flex gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />Idiomatic and Literal styles</li>
+              <li className="flex gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />History saved in your browser</li>
+            </ul>
+            <div className="mt-5 rounded-lg bg-slate-800/60 px-3 py-2 text-[11px] text-slate-400">
+              Fully usable today — this is the live converter.
+            </div>
           </div>
-          <ul className="text-xs text-slate-300 space-y-1.5">
-            <li className="flex gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />More daily conversions</li>
-            <li className="flex gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />Longer migration scripts</li>
-            <li className="flex gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />Batch migration workflow</li>
-          </ul>
-          <button type="button" onClick={() => setShowPaywall(true)} className="shrink-0 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition">Go Pro ($7)</button>
+          <div className="rounded-xl border border-indigo-500/40 bg-indigo-500/5 p-5 flex flex-col">
+            <h3 className="text-sm font-semibold text-white">Pro</h3>
+            <div className="mt-1 text-2xl font-black text-white">$7 <span className="text-xs font-normal text-slate-400">/ month</span></div>
+            <p className="mt-1 text-xs text-slate-500">For longer migrations and batch work.</p>
+            <ul className="mt-4 space-y-1.5 text-xs text-slate-300 flex-1">
+              <li className="flex gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />Unlimited daily conversions</li>
+              <li className="flex gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />Longer scripts and multi-statement batches</li>
+              <li className="flex gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />Batch migration workflow</li>
+            </ul>
+            <button
+              type="button"
+              onClick={() => setShowPaywall(true)}
+              className="mt-5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition text-center"
+            >
+              Go Pro ($7)
+            </button>
+            <p className="mt-2 text-center text-[11px] text-slate-500">
+              Checkout is coming soon — free beta in the meantime.
+            </p>
+          </div>
         </div>
       </section>
       <section id="faq" className="max-w-6xl w-full mx-auto px-6 pt-14">
         <h2 className="text-xl font-bold text-white">FAQs</h2>
         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
           {[
-            ["Do I need an account?", "No. Free conversions work without signup."],
-            ["What does the free plan include?", `Up to ${DAILY_LIMIT} conversions a day for snippets up to ${FREE_MAX_LINES} lines.`],
-            ["Is the output ready for production?", "Treat it as a migration starting point: review the diff, warnings, and test it in your environment."],
-            ["What is Idiomatic versus Literal?", "Idiomatic uses target-native patterns; Literal keeps the original structure closer for review."],
-            ["Which conversions are supported?", "The conversion guides list every live From → To route available in CodeShift."],
+            ["What does CodeShift do?", "It migrates SQL and code between dialects and languages — Oracle to PostgreSQL, MySQL to Snowflake, Excel VBA to Python and more — with a line-by-line diff and warnings for differences that change behaviour without erroring."],
+            ["Is it free?", `Yes. ${DAILY_LIMIT} conversions per day are free, with no account and no credit card. A $7/month Pro plan is planned for higher limits and batch work.`],
+            ["Do I need an account?", "No. Free conversions work without signup. History and preferences are saved in your own browser."],
+            ["How accurate is the conversion?", "Syntax conversion is reliable, but treat the output as a migration starting point: review the diff and the silent-pitfall warnings, then test the code in your environment."],
+            ["What are silent pitfall warnings?", "Differences between languages that compile or run but change results — NULL handling, empty strings, ordering, row limits, timezone behaviour. CodeShift flags the ones that apply to your paste."],
+            ["What is Idiomatic vs Literal?", "Idiomatic rewrites into target-native patterns (vectorised pandas, set-based SQL). Literal preserves the source's structure line-for-line for auditing."],
+            ["What is the optional schema box?", "A collapsed field under Style/Schema where you can paste DDL. When filled, it is sent with your code so the converter can map real types and column names. Purely optional."],
           ].map(([question, answer]) => (
             <div key={question} className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-3">
               <h3 className="text-sm font-semibold text-slate-200">{question}</h3>
@@ -806,8 +982,8 @@ export default function Home() {
             <Link href="/convert" className="text-slate-400 hover:text-indigo-400">Guides</Link>
             <a href="#pricing" className="text-slate-400 hover:text-indigo-400">Pricing</a>
             <a href="#faq" className="text-slate-400 hover:text-indigo-400">FAQ</a>
-            <a href="#top" className="text-slate-500 hover:text-slate-300">Privacy</a>
-            <a href="#top" className="text-slate-500 hover:text-slate-300">Terms</a>
+            <Link href="/privacy" className="text-slate-500 hover:text-slate-300">Privacy</Link>
+            <Link href="/terms" className="text-slate-500 hover:text-slate-300">Terms</Link>
           </div>
         </div>
       </footer>
