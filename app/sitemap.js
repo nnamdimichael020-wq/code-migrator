@@ -14,6 +14,10 @@ export default function sitemap() {
       lastModified: now,
       changeFrequency: "monthly",
       priority: pair.parent ? 0.7 : 0.8
-    }))
+    })),
+    { url: `${BASE}/reviews`, lastModified: now, changeFrequency: "weekly", priority: 0.4 },
+    { url: `${BASE}/feedback`, lastModified: now, changeFrequency: "yearly", priority: 0.2 },
+    { url: `${BASE}/privacy`, lastModified: now, changeFrequency: "yearly", priority: 0.2 },
+    { url: `${BASE}/terms`, lastModified: now, changeFrequency: "yearly", priority: 0.2 }
   ];
 }
