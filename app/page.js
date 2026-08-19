@@ -557,16 +557,20 @@ export default function Home() {
                                 <button
                                   onClick={() => restoreEntry(entry)}
                                   title="Restore result (free)"
-                                  className="p-1 rounded text-slate-400 hover:text-indigo-300 hover:bg-slate-800 transition"
+                                  aria-label="Restore result for this conversion"
+                                  className="flex items-center gap-1 px-1.5 py-1 rounded text-[10px] text-slate-400 hover:text-indigo-300 hover:bg-slate-800 transition"
                                 >
                                   <RotateCcw className="w-3.5 h-3.5" />
+                                  <span className="hidden sm:inline">Restore</span>
                                 </button>
                                 <button
                                   onClick={() => rerunEntry(entry)}
                                   title="Re-run conversion (uses 1 free use)"
-                                  className="p-1 rounded text-slate-400 hover:text-emerald-300 hover:bg-slate-800 transition"
+                                  aria-label="Re-run this conversion"
+                                  className="flex items-center gap-1 px-1.5 py-1 rounded text-[10px] text-slate-400 hover:text-emerald-300 hover:bg-slate-800 transition"
                                 >
                                   <Sparkles className="w-3.5 h-3.5" />
+                                  <span className="hidden sm:inline">Re-run</span>
                                 </button>
                               </div>
                             </div>
