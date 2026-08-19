@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Code2, Copy, Check, Sparkles, Zap, Lock, GitCompare, FileCode,
   Filter, History, Download, ChevronDown, Trash2, RotateCcw, AlertTriangle,
-  AlignLeft, Database, Star, X
+  AlignLeft, Database, Star, X, LogOut
 } from "lucide-react";
 import { diffLines, countChanges, collapseUnchanged } from "../lib/diff";
 import { groupExplanation } from "../lib/classify";
@@ -88,6 +88,8 @@ export default function Home() {
   const [promptBusy, setPromptBusy] = useState(false);
   const [promptError, setPromptError] = useState("");
   const [promptDone, setPromptDone] = useState(false);
+  // Google sign-in state, used only at the Pro gate. Free tier never needs it.
+  const [auth, setAuth] = useState({ loggedIn: false, email: "", name: "", plan: "free" });
   const reviewSource = useRef("");
   const reviewTarget = useRef("");
   // Set after mount only, so the server and first client render agree.
@@ -174,6 +176,22 @@ export default function Home() {
         if (typeof data?.remaining === "number") applyUsage(data);
       })
       .catch(() => setRemaining(DAILY_LIMIT));
+  }, []);
+  // Load sign-in state once (for the Pro gate + a small logged-in chip).
+  useEffect(() => {
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && typeof data.loggedIn === "boolean") {
+          setAuth({
+            loggedIn: data.loggedIn,
+            email: data.email || "",
+            name: data.name || "",
+            plan: data.plan || "free"
+          });
+        }
+      })
+      .catch(() => {});
   }, []);
   // Load reviews once for the widget — not on every rotation tick.
   useEffect(() => {
@@ -427,6 +445,20 @@ export default function Home() {
       setPromptBusy(false);
     }
   };
+  // Pro gate: not signed in → Google OAuth; signed in → Pro placeholder.
+  // Billing is not live, so nothing is ever charged from here.
+  const goPro = () => {
+    window.location.href = auth.loggedIn ? "/pro" : "/api/auth/google";
+  };
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // Ignore — the free tool works regardless of session state.
+    }
+    setAuth({ loggedIn: false, email: "", name: "", plan: "free" });
+    setShowPaywall(false);
+  };
   const relativeTime = (ts) => {
     const mins = Math.round((Date.now() - ts) / 60000);
     if (mins < 1) return "just now";
@@ -555,11 +587,21 @@ export default function Home() {
                 )}
               </div>
             )}
+            {auth.loggedIn && (
+              <span className="hidden md:flex items-center gap-1.5 text-xs text-slate-400 max-w-[150px]">
+                <span className="truncate">{auth.email}</span>
+                <button
+                  onClick={handleLogout}
+                  title="Sign out"
+                  aria-label="Sign out"
+                  className="text-slate-500 hover:text-slate-300 p-1 rounded hover:bg-slate-800 transition shrink-0"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                </button>
+              </span>
+            )}
             <button
-              onClick={() => {
-                setPaywallReason(pasteInfo.tooLong ? "size" : "limit");
-                setShowPaywall(true);
-              }}
+              onClick={goPro}
               className="bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition"
             >
               <Zap className="w-4 h-4" /> Go Pro ($7)
@@ -1104,7 +1146,7 @@ export default function Home() {
             </ul>
             <button
               type="button"
-              onClick={() => setShowPaywall(true)}
+              onClick={goPro}
               className="mt-5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition text-center"
             >
               Go Pro ($7)
@@ -1274,13 +1316,13 @@ export default function Home() {
             </div>
             <button
               type="button"
-              disabled
-              className="bg-slate-700 text-slate-300 font-semibold py-2.5 rounded-lg w-full cursor-not-allowed"
+              onClick={goPro}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-lg w-full transition"
             >
-              Pro checkout coming soon
+              Go Pro ($7)
             </button>
             <p className="text-xs text-slate-500">
-              This is a free public beta. Payments are not live yet.
+              Free public beta — billing isn&apos;t live yet. Signing in won&apos;t charge you.
             </p>
             <button
               onClick={() => setShowPaywall(false)}

@@ -50,6 +50,7 @@ export default function TermsPage() {
             these terms.
           </li>
           <li>Conversion history and preferences are stored only in your own browser.</li>
+          <li>The free tier does not require an account. Signing in is optional and only offered at the Pro gate.</li>
         </ul>
 
         <h2 className={SECTION_TITLE}>3. Pro plan (planned)</h2>
@@ -57,9 +58,15 @@ export default function TermsPage() {
           A Pro plan at $7/month is planned for higher or unlimited daily conversions, longer
           scripts, and batch migration. At the time of writing, checkout is{" "}
           <span className="font-semibold text-slate-200">not live</span> — the service is a free
-          public beta and no payment is taken. When checkout launches, Pro will be a paid
-          subscription with these terms updated to match, and the price and included features
-          will be stated on the pricing section before you pay.
+          public beta and no payment is taken.
+        </p>
+        <p className={`mt-3 ${PARAGRAPH}`}>
+          <span className="font-semibold text-slate-200">Signing in with Google does not create a
+          paid subscription.</span> It only identifies your account so a future Pro entitlement
+          can be attached to it. Pro features and billing may launch later; you will not be
+          charged until a checkout is explicitly completed and confirmed by you. If you sign in,
+          your account starts and remains on the free plan until that happens. You can sign out
+          at any time and keep using the free tier.
         </p>
 
         <h2 className={SECTION_TITLE}>4. Your responsibility for converted code</h2>

@@ -64,6 +64,13 @@ export default function PrivacyPage() {
             message can be answered.
           </li>
           <li>
+            <span className={LIST_STRONG}>Google Sign-In (optional).</span> If you choose to sign
+            in with Google — which is only offered at the Pro gate — we receive your Google user
+            ID, email address and basic profile name (if available). This is used to identify
+            your account for a future Pro entitlement and to manage your session. Free
+            conversions never require signing in.
+          </li>
+          <li>
             <span className={LIST_STRONG}>Basic technical logs.</span> Cloudflare and the hosting
             layer may record standard request data (timestamps, network address, request paths,
             status codes) for operations, security and abuse prevention.
@@ -109,18 +116,44 @@ export default function PrivacyPage() {
             in your own browser&apos;s local storage. They never leave your device and are never
             sent to our servers.
           </li>
+          <li>
+            <span className={LIST_STRONG}>Session cookie (<code className="font-mono text-xs">cs_session</code>).</span>{" "}
+            Set only when you sign in with Google. It is a signed, HttpOnly, Secure, SameSite=Lax
+            cookie that identifies your account for up to 30 days. Signing out removes it.
+          </li>
+          <li>
+            <span className={LIST_STRONG}>OAuth state cookie (<code className="font-mono text-xs">cs_oauth_state</code>).</span>{" "}
+            A short-lived (10-minute), HttpOnly cookie used during the Google sign-in step to
+            protect the login flow. It is deleted after sign-in completes.
+          </li>
         </ul>
 
-        <h2 className={SECTION_TITLE}>6. Third parties</h2>
+        <h2 className={SECTION_TITLE}>6. Sign-in and account data</h2>
+        <p className={PARAGRAPH}>
+          Sign-in is optional and only appears at the Pro gate; you can use the converter, the
+          guides, reviews and the free daily quota without an account. When you sign in with
+          Google, we store your Google user ID, email address, optional display name, a plan
+          field (always &ldquo;free&rdquo; while billing is not live) and account timestamps in
+          Cloudflare&apos;s key-value store. New accounts always start on the free plan. We do not
+          receive or store your Google password, and we never set your plan to a paid state
+          automatically.
+        </p>
+
+        <h2 className={SECTION_TITLE}>7. Third parties</h2>
         <ul className={LIST}>
           <li>
             <span className={LIST_STRONG}>Cloudflare</span> hosts the site (Workers/Pages),
-            provides the key-value store used for quota counters and reviews, and powers
-            Turnstile.
+            provides the key-value store used for quota counters, reviews and user accounts, and
+            powers Turnstile.
           </li>
           <li>
             <span className={LIST_STRONG}>Google Gemini API</span> performs the actual code
             conversion. Snippets are transmitted to Google for that purpose.
+          </li>
+          <li>
+            <span className={LIST_STRONG}>Google Sign-In</span> handles the OAuth sign-in step.
+            Google shares your user ID, email and basic profile name with us (see Section 1 and
+            Section 6); we never see your Google password.
           </li>
           <li>
             <span className={LIST_STRONG}>Resend</span> (or the configured transactional email
@@ -134,19 +167,21 @@ export default function PrivacyPage() {
           </li>
         </ul>
 
-        <h2 className={SECTION_TITLE}>7. Your rights and contact</h2>
+        <h2 className={SECTION_TITLE}>8. Your rights and contact</h2>
         <p className={PARAGRAPH}>
           You can stop us processing your pasted code at any time by simply not using the
-          converter — there is no account to delete. You can clear your browser&apos;s local
-          storage and cookies at any time to remove history, preferences and the quota cookie. To
-          ask for a review to be removed or a feedback email deleted, contact us at{" "}
+          converter — there is no account required for that. If you signed in, you can sign out
+          from the Pro page or clear the session cookie, which removes your session. You can
+          clear your browser&apos;s local storage and cookies at any time to remove history,
+          preferences and the quota cookie. To ask for a review to be removed, a feedback email
+          deleted, or your account record deleted, contact us at{" "}
           <a href="mailto:nnamdimichael020@gmail.com" className="text-indigo-400 hover:text-indigo-300">
             nnamdimichael020@gmail.com
           </a>
           .
         </p>
 
-        <h2 className={SECTION_TITLE}>8. Changes</h2>
+        <h2 className={SECTION_TITLE}>9. Changes</h2>
         <p className={PARAGRAPH}>
           If the service changes how data is processed, this page will be updated and the
           &ldquo;Last reviewed&rdquo; date above will move. Continued use of the service after a
