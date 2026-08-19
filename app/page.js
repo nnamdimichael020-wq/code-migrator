@@ -379,7 +379,16 @@ export default function Home() {
           </nav>
           <div className="flex items-center gap-3 text-sm shrink-0">
             <span className="hidden sm:inline text-slate-400">
-              Free Daily Uses: <strong className="text-indigo-400">{remainingLabel}</strong>
+              Free Daily Uses:{" "}
+              <strong
+                className={
+                  remaining !== null && remaining <= 1
+                    ? "text-rose-400"
+                    : "text-indigo-400"
+                }
+              >
+                {remainingLabel}
+              </strong>
             </span>
             {history.length > 0 && (
               <div className="relative">
