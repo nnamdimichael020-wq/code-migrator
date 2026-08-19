@@ -367,12 +367,12 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       <header id="top" className="sticky top-0 z-30 border-b border-slate-800 bg-slate-950/90 backdrop-blur px-4 py-3 sm:px-6">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+        <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <a href="#top" className="flex items-center gap-2 shrink-0" aria-label="CodeShift AI home">
             <Code2 className="w-6 h-6 text-indigo-400" />
             <span className="font-bold text-lg tracking-tight">CodeShift AI</span>
           </a>
-          <nav className="hidden lg:flex items-center gap-5 text-sm text-slate-400" aria-label="Primary navigation">
+          <nav className="flex items-center gap-3 sm:gap-5 text-xs sm:text-sm text-slate-400" aria-label="Primary navigation">
             <a href="#guides" className="hover:text-white transition">Conversion Guides</a>
             <a href="#pricing" className="hover:text-white transition">Pricing</a>
             <a href="#faq" className="hover:text-white transition">FAQs</a>
