@@ -39,7 +39,11 @@ export async function GET() {
 export async function POST(request) {
   try {
     const body = await request.json().catch(() => ({}));
-    const checked = validateReview(body || {});
+    const checked = validateReview({
+      ...(body || {}),
+      // Accept both client spellings without changing the public response shape.
+      displayName: body?.displayName ?? body?.name
+    });
     if (checked.error) {
       return NextResponse.json({ error: checked.error }, { status: 400, headers: HEADERS });
     }
