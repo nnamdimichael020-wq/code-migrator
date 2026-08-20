@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getAllPages, getPair, LAST_UPDATED, relatedPages } from "../../../lib/pairs";
 import GuideSandbox from "../GuideSandbox";
+import SiteHeader from "../../components/SiteHeader";
 
 export const dynamic = "force-static";
 
@@ -94,11 +95,7 @@ export default async function ConvertPage({ params }) {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
       />
-      <header className="border-b border-slate-800 bg-slate-900/50 px-6 py-4">
-        <Link href="/" className="font-bold text-lg tracking-tight hover:text-indigo-400 transition">
-          CodeShift AI
-        </Link>
-      </header>
+      <SiteHeader />
       <main className="max-w-5xl mx-auto px-6 py-10">
         <h1 className="text-3xl sm:text-4xl font-extrabold text-white">{heading}</h1>
         <p className="mt-2 text-xs text-slate-500">

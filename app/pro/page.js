@@ -5,6 +5,7 @@ import { Check } from "lucide-react";
 import { kvConfig } from "../../lib/kv.js";
 import { authConfig, verifyToken, getUser, SESSION_COOKIE } from "../../lib/auth.js";
 import SignOutButton from "./SignOutButton";
+import SiteHeader from "../components/SiteHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -43,11 +44,7 @@ export default async function ProPage() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="border-b border-slate-800 bg-slate-900/50 px-6 py-4">
-        <Link href="/" className="font-bold text-lg tracking-tight hover:text-indigo-400 transition">
-          CodeShift AI
-        </Link>
-      </header>
+      <SiteHeader />
       <main className="max-w-2xl mx-auto px-6 py-14">
         <div className="rounded-2xl border border-slate-800 bg-slate-900 p-8 text-center">
           {plan === "pro" ? (
