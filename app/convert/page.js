@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { MODIFIERS, PAIRS } from "../../lib/pairs";
+import SiteHeader from "../components/SiteHeader";
 
 export const dynamic = "force-static";
 
@@ -36,11 +37,7 @@ export default function ConvertIndex() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="border-b border-slate-800 bg-slate-900/50 px-6 py-4">
-        <Link href="/" className="font-bold text-lg tracking-tight hover:text-indigo-400 transition">
-          CodeShift AI
-        </Link>
-      </header>
+      <SiteHeader />
       <main className="max-w-5xl mx-auto px-6 py-10">
         <h1 className="text-3xl sm:text-4xl font-extrabold text-white">
           Code & SQL Converters

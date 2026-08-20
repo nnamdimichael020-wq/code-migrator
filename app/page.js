@@ -221,6 +221,18 @@ export default function Home() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [showReviewPrompt]);
+  // Escape closes History and Copy menus too.
+  useEffect(() => {
+    if (!showHistory && !showCopyMenu) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        setShowHistory(false);
+        setShowCopyMenu(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [showHistory, showCopyMenu]);
   useEffect(() => {
     const start = () => {
       if (!window.turnstile || !turnstileBox.current || turnstileId.current != null) return;
@@ -397,6 +409,28 @@ export default function Home() {
     setHistory([]);
     setShowHistory(false);
   };
+  // Demo example should disappear as soon as the user interacts with the converter.
+  const clearExampleOnInteract = () => {
+    if (!showingExample) return;
+    setInputCode("");
+    setOutputCode("");
+    setDiffBase("");
+    setExplanation([]);
+    setPitfalls([]);
+    setShowingExample(false);
+  };
+  const clearConverter = () => {
+    setInputCode("");
+    setOutputCode("");
+    setDiffBase("");
+    setExplanation([]);
+    setPitfalls([]);
+    setShowingExample(false);
+    setSchemaText("");
+    setViewMode("code");
+    // Focus back to input so user can paste again
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
   // Shows the review prompt at most once per 24h per browser, and only
   // after a successful conversion. Closing or submitting sets the flag, so
   // re-translating in the same minute never re-nags.
@@ -492,19 +526,19 @@ export default function Home() {
     : null;
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
-      <header id="top" className="sticky top-0 z-30 border-b border-slate-800 bg-slate-950/90 backdrop-blur px-4 py-3 sm:px-6">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-4 overflow-x-auto">
+      <header id="top" className="sticky top-0 z-30 border-b border-slate-800 bg-slate-950/95 px-4 py-3 sm:px-6">
+        <div className="max-w-7xl mx-auto flex items-center gap-4">
           <a href="#top" className="flex items-center gap-2 shrink-0" aria-label="CodeShift AI home">
             <Code2 className="w-6 h-6 text-indigo-400" />
             <span className="font-bold text-lg tracking-tight">CodeShift AI</span>
           </a>
-          <nav className="flex items-center gap-3 sm:gap-5 text-xs sm:text-sm text-slate-400 whitespace-nowrap" aria-label="Primary navigation">
+          <nav className="flex items-center gap-3 sm:gap-5 text-xs sm:text-sm text-slate-400 whitespace-nowrap overflow-x-auto min-w-0 flex-1" aria-label="Primary navigation">
             <a href="#guides" className="hover:text-white transition">Conversion Guides</a>
             <Link href="/reviews" className="hover:text-white transition">Reviews</Link>
             <a href="#pricing" className="hover:text-white transition">Pricing</a>
             <a href="#faq" className="hover:text-white transition">FAQs</a>
           </nav>
-          <div className="flex items-center gap-3 text-sm shrink-0">
+          <div className="flex items-center gap-3 text-sm shrink-0 ml-auto">
             <span className="hidden sm:inline text-slate-400">
               Free Daily Uses:{" "}
               <strong
@@ -716,22 +750,49 @@ export default function Home() {
               ref={inputRef}
               value={inputCode}
               onChange={(e) => setInputCode(e.target.value)}
+              onFocus={clearExampleOnInteract}
+              onClick={clearExampleOnInteract}
               placeholder="Paste code or SQL script here..."
               className="flex-1 w-full bg-transparent p-4 font-mono text-sm text-slate-200 resize-none focus:outline-none min-h-[300px]"
             />
             <div className="p-3 border-t border-slate-800 bg-slate-900 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div ref={turnstileBox} className="min-h-[65px]" />
-              <button
-                onClick={() => handleConvert()}
-                disabled={loading || !inputCode.trim() || remaining === null || pasteInfo.tooLong}
-                className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold px-5 py-2 rounded-lg flex items-center justify-center gap-2 transition"
-              >
-                {loading ? "Translating..." : "Translate Code"}
-                <Sparkles className="w-4 h-4" />
-                <span className="hidden sm:inline text-[11px] text-indigo-200/70 font-normal ml-0.5">
-                  {shortcutLabel}
-                </span>
-              </button>
+              <div className="flex items-center gap-3">
+                <div ref={turnstileBox} className="min-h-[65px]" />
+                {(inputCode.trim() || outputCode.trim() || explanation.length > 0) && !showingExample && (
+                  <button
+                    type="button"
+                    onClick={clearConverter}
+                    className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-600 px-3 py-1.5 rounded-lg transition"
+                    title="Clear all - start fresh"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Clear
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {(inputCode.trim() || outputCode.trim()) && (
+                  <button
+                    type="button"
+                    onClick={clearConverter}
+                    className="sm:hidden inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 px-3 py-2 rounded-lg transition"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Clear
+                  </button>
+                )}
+                <button
+                  onClick={() => handleConvert()}
+                  disabled={loading || !inputCode.trim() || remaining === null || pasteInfo.tooLong}
+                  className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold px-5 py-2 rounded-lg flex items-center justify-center gap-2 transition"
+                >
+                  {loading ? "Translating..." : "Translate Code"}
+                  <Sparkles className="w-4 h-4" />
+                  <span className="hidden sm:inline text-[11px] text-indigo-200/70 font-normal ml-0.5">
+                    {shortcutLabel}
+                  </span>
+                </button>
+              </div>
             </div>
           </div>
           <div className="flex flex-col bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
@@ -739,6 +800,14 @@ export default function Home() {
               <span>MIGRATED CODE ({targetLang})</span>
               {outputCode && !showingExample && (
                 <div className="flex items-center gap-3">
+                  <button
+                    onClick={clearConverter}
+                    className="flex items-center gap-1 text-slate-400 hover:text-rose-300 text-xs px-2 py-1 rounded border border-slate-700 hover:border-rose-500/30 transition"
+                    title="Clear conversion - start fresh"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    Clear
+                  </button>
                   <div className="flex items-center rounded-md border border-slate-700 overflow-hidden">
                     <button
                       onClick={() => changeView("code")}
