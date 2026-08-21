@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { inspectPaste, sizeLimitPayload } from "../../../lib/limits.js";
+import { readSessionFromRequest, getUser } from "../../../lib/auth.js";
 // The system prompt + input builder live in lib/prompt.js as a pure module so
 // the conversion contract is unit-tested instead of living inside the route.
 import {
@@ -158,6 +159,19 @@ async function verifyTurnstile(token, ip) {
   }
   return { ok: true };
 }
+// Plan resolution for entitlement: read the signed session, then the STORED
+// user record. The cookie's plan field is not trusted for quota — only KV is.
+async function resolvePlan(request, kv) {
+  try {
+    const session = await readSessionFromRequest(request);
+    if (!session || !kv) return "free";
+    const user = await getUser(kv, session.sub);
+    return user?.plan === "pro" ? "pro" : "free";
+  } catch {
+    return "free";
+  }
+}
+
 function usagePayload(used) {
   const safeUsed = Math.max(0, used);
   return {
@@ -212,7 +226,11 @@ export async function GET(request) {
         visitor
       );
     }
-    return jsonWithUsage({ ...usagePayload(usage.used), configured: true }, visitor);
+    const plan = await resolvePlan(request, usage.config);
+    return jsonWithUsage(
+      { ...usagePayload(plan === "pro" ? 0 : usage.used), configured: true, plan },
+      visitor
+    );
   } catch (error) {
     return jsonWithUsage(
       { error: error?.message || "Could not read usage." },
@@ -253,10 +271,6 @@ export async function POST(request) {
     if (!human.ok) {
       return jsonWithUsage({ error: human.error }, visitor, 403);
     }
-    const paste = inspectPaste(code);
-    if (paste.tooLong) {
-      return jsonWithUsage(sizeLimitPayload(paste.lineCount), visitor, 400);
-    }
     const usage = await loadUsage(request, visitor.id);
     if (!usage.configured) {
       return jsonWithUsage(
@@ -268,11 +282,19 @@ export async function POST(request) {
         500
       );
     }
-    if (usage.used >= DAILY_LIMIT) {
+    // Entitlement comes from the stored user record — never from the cookie
+    // alone and never from the client. Fails closed to free tier.
+    const plan = await resolvePlan(request, usage.config);
+    const paste = inspectPaste(code, plan);
+    if (paste.tooLong) {
+      return jsonWithUsage(sizeLimitPayload(plan, paste.lineCount), visitor, 400);
+    }
+    if (plan !== "pro" && usage.used >= DAILY_LIMIT) {
       return jsonWithUsage(
         {
           error: "Daily free limit reached.",
-          ...usagePayload(usage.used)
+          ...usagePayload(usage.used),
+          plan
         },
         visitor,
         429
@@ -379,13 +401,16 @@ export async function POST(request) {
       const modelPitfalls = Array.isArray(parsed.pitfalls)
         ? parsed.pitfalls.map((item) => String(item || "").trim()).filter(Boolean)
         : [];
-      const used = await bumpUsage(usage);
+      // Pro users are unlimited: no counter bump, so a later lapse back to
+      // free doesn't leave them with a maxed-out counter from their Pro days.
+      const used = plan === "pro" ? usage.used : await bumpUsage(usage);
       return jsonWithUsage(
         {
           convertedCode: parsed.convertedCode,
           explanation: Array.isArray(parsed.explanation) ? parsed.explanation : [],
           pitfalls: modelPitfalls,
-          ...usagePayload(used)
+          ...usagePayload(plan === "pro" ? 0 : used),
+          plan
         },
         visitor
       );
