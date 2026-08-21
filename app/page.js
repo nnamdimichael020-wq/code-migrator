@@ -736,8 +736,9 @@ export default function Home() {
               className="mt-2 w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 font-mono text-xs text-slate-200 resize-y min-h-[80px] focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
             <p className="mt-1.5 text-[11px] text-slate-500">
-              Sent with your code to improve type and column mapping. Purely optional — leave it
-              empty to convert without schema context.
+              Sent with your code and treated as authoritative ground truth — real types, columns,
+              constraints and nullability replace every guess, and irrelevant warnings get
+              suppressed. Purely optional — leave it empty to convert without schema context.
             </p>
           </div>
         )}
@@ -1240,7 +1241,7 @@ export default function Home() {
             ["How accurate is the conversion?", "Syntax conversion is reliable, but treat the output as a migration starting point: review the diff and the silent-pitfall warnings, then test the code in your environment."],
             ["What are silent pitfall warnings?", "Differences between languages that compile or run but change results — NULL handling, empty strings, ordering, row limits, timezone behaviour. CodeShift flags the ones that apply to your paste."],
             ["What is Idiomatic vs Literal?", "Idiomatic rewrites into target-native patterns (vectorised pandas, set-based SQL). Literal preserves the source's structure line-for-line for auditing."],
-            ["What is the optional schema box?", "A collapsed field under Style/Schema where you can paste DDL. When filled, it is sent with your code so the converter can map real types and column names. Purely optional."],
+            ["What is the optional schema box?", "A collapsed field under Style/Schema where you can paste DDL. When filled, it is sent with your code and treated as authoritative ground truth — the converter maps real types (with precision and scale), columns and constraints instead of guessing, and drops warnings the schema proves irrelevant. Purely optional."],
           ].map(([question, answer]) => (
             <div key={question} className="rounded-lg border border-slate-800 bg-slate-900 px-4 py-3">
               <h3 className="text-sm font-semibold text-slate-200">{question}</h3>

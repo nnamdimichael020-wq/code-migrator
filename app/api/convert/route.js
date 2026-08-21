@@ -78,9 +78,102 @@ const LITERAL_RULES = [
   "Use target-language syntax that actually compiles and runs — literal means",
   "structure-preserving, not a broken transliteration."
 ];
-function buildInstruction(style) {
+// SQL dialects — the only languages where a pasted DDL changes how the
+// conversion itself must be done.
+const SQL_LANGUAGES = new Set([
+  "PostgreSQL",
+  "Oracle SQL",
+  "Snowflake SQL",
+  "Google BigQuery",
+  "MySQL"
+]);
+function isSqlConversion(sourceLang, targetLang) {
+  return SQL_LANGUAGES.has(sourceLang) || SQL_LANGUAGES.has(targetLang);
+}
+// Schema-aware SQL conversion. When a DDL accompanies the code it is
+// authoritative ground truth: real types, columns and constraints replace
+// every guess, and every pitfall must survive a check against the schema.
+// This is what makes the converter measurably better than generic tools on
+// schema-backed migrations.
+const SQL_SCHEMA_HEAD = [
+  "You are an expert SQL dialect migration engine specializing in high-accuracy",
+  "conversions. A table schema (DDL) accompanies this request: treat it as",
+  "authoritative ground truth and use it aggressively to maximize conversion",
+  "accuracy, correctness and idiomatic quality."
+];
+const SCHEMA_CORE_SQL = [
+  "Mandatory schema (DDL) rules:",
+  "",
+  "1. Type awareness (critical). Map source types precisely using the DDL and",
+  "   never ignore precision or scale: NUMBER(p, s) → NUMERIC(p, s) or",
+  "   DECIMAL(p, s); NUMBER without scale → INTEGER or BIGINT when the usage",
+  "   fits, otherwise NUMERIC; VARCHAR2(n) → VARCHAR(n); CHAR(n) → CHAR(n);",
+  "   DATE → DATE or TIMESTAMP depending on how the column is actually used in",
+  "   the code. Carry nullability over exactly: a NOT NULL column stays NOT NULL.",
+  "2. Column and constraint intelligence. Only reference columns that exist in",
+  "   the provided schema; if the code uses a column the schema does not define,",
+  "   say so in `explanation` instead of guessing. Respect PRIMARY KEY, UNIQUE,",
+  "   NOT NULL and FOREIGN KEY constraints when rewriting logic, and prefer",
+  "   safer, more explicit constructs (COALESCE, IS NOT NULL guards) on nullable",
+  "   columns than on NOT NULL ones.",
+  "3. Function and expression rewriting, schema-aware. Choose the most accurate",
+  "   target-dialect equivalent based on the actual column types. When the",
+  "   target is PostgreSQL: prefer CURRENT_DATE over CURRENT_TIMESTAMP when the",
+  "   source column is DATE; use AGE() plus EXTRACT for year and month",
+  "   calculations; expand NVL / NVL2 / DECODE into the cleanest readable CASE",
+  "   (or COALESCE) form; and avoid casts that the target type already makes",
+  "   unnecessary.",
+  "4. Silent pitfall reduction. Re-check every pitfall against the schema and",
+  "   only emit warnings that are still relevant after that check — suppress or",
+  "   downgrade the ones the schema proves not applicable. Always keep critical",
+  "   behavioural differences: ROWNUM vs LIMIT ordering, empty string vs NULL,",
+  "   and time-zone handling.",
+  "5. Output requirements. `convertedCode` contains only the converted SQL — no",
+  "   commentary, no markdown fences. Keep proper formatting and indentation,",
+  "   and preserve aliases and logical structure unless a clearer idiomatic form",
+  "   exists."
+];
+// Idiomatic style on top of a schema: readability and native form win over a
+// line-for-line mirror, while the schema keeps it honest.
+const SCHEMA_IDIOMATIC_SQL = [
+  "Idiomatic quality: produce clean, modern, native target-dialect SQL. Prefer",
+  "readability and correctness over a literal 1:1 translation, and keep the",
+  "output production-ready."
+];
+// Literal style on top of a schema: the structure stays line-for-line, but
+// the schema still owns every type and name decision.
+const SCHEMA_LITERAL_SQL = [
+  "Schema fidelity in literal mode: keep the line-for-line structure this mode",
+  "requires, but take every type, column name, constraint and nullability from",
+  "the schema — literal means structure-preserving, not guessed."
+];
+// SQL conversion with no DDL: best-effort, and visibly conservative about any
+// type it has to assume.
+const NO_SCHEMA_SQL_RULES = [
+  "No schema (DDL) was provided. Fall back to best-effort conversion using",
+  "general dialect knowledge and stay conservative with type assumptions: never",
+  "invent precision or scale, and note in `explanation` every place a type had",
+  "to be guessed."
+];
+function buildInstruction(style, ctx = {}) {
   const rules = style === "literal" ? LITERAL_RULES : IDIOMATIC_RULES;
-  return [...INSTRUCTION_HEAD, "", ...rules, "", ...INSTRUCTION_TAIL].join("\n");
+  const schemaSql = Boolean(ctx.sqlConversion && ctx.hasSchema);
+  const head = schemaSql ? SQL_SCHEMA_HEAD : INSTRUCTION_HEAD;
+  const sections = [head, "", rules];
+  if (ctx.sqlConversion) {
+    if (ctx.hasSchema) {
+      sections.push(
+        "",
+        SCHEMA_CORE_SQL,
+        "",
+        style === "literal" ? SCHEMA_LITERAL_SQL : SCHEMA_IDIOMATIC_SQL
+      );
+    } else {
+      sections.push("", NO_SCHEMA_SQL_RULES);
+    }
+  }
+  sections.push("", INSTRUCTION_TAIL);
+  return sections.flat().join("\n");
 }
 const STYLES = ["idiomatic", "literal"];
 function utcDate() {
@@ -287,6 +380,11 @@ export async function POST(request) {
         // Optional schema/DDL context. Missing, empty or non-string values are
         // simply ignored so the endpoint stays backward compatible.
         const schemaText = typeof schema === "string" ? schema.trim() : "";
+        const hasSchema = schemaText.length > 0;
+        // SQL dialects get schema-aware conversion rules; a DDL pasted into a
+        // non-SQL conversion still travels with the code, but the SQL-specific
+        // mandates do not apply.
+        const sqlConversion = isSqlConversion(sourceLang, targetLang);
         if (schemaText.length > SCHEMA_MAX_CHARS) {
           return jsonWithUsage(
             { error: `Schema context is too long. Keep it under ${SCHEMA_MAX_CHARS} characters.` },
@@ -342,11 +440,11 @@ export async function POST(request) {
     }
     const requestBody = {
       store: false,
-      system_instruction: buildInstruction(conversionStyle),
+      system_instruction: buildInstruction(conversionStyle, { sqlConversion, hasSchema }),
       input:
         `Convert this code from ${sourceLang} to ${targetLang}.\n\nCode:\n${code}` +
         (schemaText
-          ? `\n\nTable schema (DDL) for reference — use its real types, columns and names where they apply:\n${schemaText}`
+          ? `\n\nTable schema (DDL) — authoritative ground truth: its types, columns, constraints and nullability override any assumption:\n${schemaText}`
           : ""),
       response_format: {
         type: "text",
