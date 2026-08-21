@@ -3,9 +3,15 @@ import { redirect } from "next/navigation";
 import { cookies } from "next/headers";
 import { kvConfig } from "../../../lib/kv.js";
 import { authConfig, verifyToken, getUser, setUserPlan, SESSION_COOKIE } from "../../../lib/auth.js";
-import { billingConfig, retrieveCheckoutSession } from "../../../lib/billing.js";
+import {
+  billingConfig,
+  getCheckoutMapping,
+  retrieveLemonCheckout,
+  checkoutIsPaid
+} from "../../../lib/billing.js";
 import { PRO_MAX_LINES } from "../../../lib/limits.js";
 import SiteHeader from "../../components/SiteHeader";
+import ActivationPoller from "../ActivationPoller";
 
 export const dynamic = "force-dynamic";
 
@@ -23,42 +29,47 @@ export default async function ProSuccessPage({ searchParams }) {
   if (!session) redirect("/api/auth/google");
 
   const params = await searchParams;
-  const sessionId = typeof params?.session_id === "string" ? params.session_id : "";
+  const token = typeof params?.c === "string" ? params.c.slice(0, 80) : "";
   const email = session.email || "";
 
-  // Confirm the payment server-side and flip the plan ourselves, rather than
-  // trusting the redirect. The webhook remains the safety net (and covers
-  // renewals/cancellations); this makes the flip immediate and deterministic.
+  // Confirm the payment server-side rather than trusting the redirect: our
+  // confirm token maps to the payer in KV, and the Lemon Squeezy checkout is
+  // fetched back from the API and must read as paid. The signed webhook
+  // remains the safety net (renewals, cancellations); this makes the flip
+  // immediate when both work.
   let confirmed = false;
   let pending = false;
   const billing = billingConfig();
   const kv = kvConfig();
 
-  if (sessionId && billing.secretKey && kv) {
+  if (token && billing.apiKey && kv) {
     try {
-      const checkout = await retrieveCheckoutSession({
-        secretKey: billing.secretKey,
-        sessionId
-      });
-      const payerMatches =
-        checkout?.metadata?.googleId === session.sub ||
-        checkout?.client_reference_id === session.sub;
-      if (payerMatches && checkout?.status === "complete" && checkout?.payment_status === "paid") {
-        await setUserPlan(kv, session.sub, "pro", {
-          stripeCustomerId: checkout.customer || null,
-          stripeSubscriptionId: checkout.subscription || null
-        });
-        confirmed = true;
-      } else if (payerMatches) {
-        // Session exists but hasn't settled — the webhook will land shortly.
+      const mapping = await getCheckoutMapping(kv, token);
+      if (mapping && mapping.googleId === session.sub) {
+        if (mapping.lemonCheckoutId) {
+          const checkout = await retrieveLemonCheckout({
+            apiKey: billing.apiKey,
+            checkoutId: mapping.lemonCheckoutId
+          });
+          if (checkoutIsPaid(checkout)) {
+            await setUserPlan(kv, session.sub, "pro", {
+              lemonCheckoutId: mapping.lemonCheckoutId
+            });
+            confirmed = true;
+          } else {
+            pending = true;
+          }
+        }
+      } else if (mapping) {
+        // Token belongs to a different account — never flip someone else.
+        pending = false;
+      } else {
         pending = true;
       }
     } catch {
       pending = true;
     }
-  } else if (sessionId) {
-    // Billing env missing or KV down: the signed webhook still applies the
-    // plan when configured; don't claim success we can't verify.
+  } else if (token) {
     pending = true;
   }
 
@@ -90,6 +101,10 @@ export default async function ProSuccessPage({ searchParams }) {
                 are now unlimited, and single scripts up to {PRO_MAX_LINES} lines convert
                 without splitting.
               </p>
+              <p className="mt-2 text-xs text-slate-500">
+                Lemon Squeezy emailed your receipt and subscription link — that link is also
+                where you cancel any time.
+              </p>
             </>
           ) : (
             <>
@@ -97,14 +112,14 @@ export default async function ProSuccessPage({ searchParams }) {
                 Payment received — activating Pro
               </h1>
               <p className="mt-3 text-sm text-slate-400">
-                We&apos;re confirming your payment now. This usually takes a few seconds;
-                refresh this page or reopen the converter in a moment. Nothing further is
-                needed from you.
+                We&apos;re confirming your payment with Lemon Squeezy now. This usually takes
+                a few seconds — this page updates itself, no action needed from you.
               </p>
+              <ActivationPoller />
               {pending && (
-                <p className="mt-2 text-xs text-slate-500">
-                  If Pro doesn&apos;t appear within a few minutes, reply to your Stripe
-                  receipt email and we&apos;ll sort it out.
+                <p className="mt-3 text-xs text-slate-500">
+                  If Pro doesn&apos;t appear within a few minutes, use the contact link in the
+                  footer with your receipt email and we&apos;ll sort it out.
                 </p>
               )}
             </>

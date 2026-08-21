@@ -132,8 +132,8 @@ export default function PrivacyPage() {
           Google, we store your Google user ID, email address, optional display name, a plan
           field (&ldquo;free&rdquo; or &ldquo;pro&rdquo;) and account timestamps in
           Cloudflare&apos;s key-value store. New accounts always start on the free plan; the
-          plan only changes to &ldquo;pro&rdquo; when Stripe confirms a payment you completed.
-          For Pro accounts we also store the Stripe customer and subscription identifiers. We do
+          plan only changes to &ldquo;pro&rdquo; when Lemon Squeezy confirms a payment you completed.
+          For Pro accounts we also store the Lemon Squeezy order/subscription identifiers. We do
           not receive or store your Google password.
         </p>
 
@@ -158,10 +158,11 @@ export default function PrivacyPage() {
             provider) delivers feedback form submissions to the developer&apos;s inbox.
           </li>
           <li>
-            <span className={LIST_STRONG}>Stripe</span> processes Pro subscription payments
-            (checkout, receipts, renewals). When you upgrade, Stripe receives your email
-            address and payment details; we receive only a confirmation, the plan change and
-            Stripe customer/subscription identifiers. Card details go to Stripe, never to us.
+            <span className={LIST_STRONG}>Lemon Squeezy</span> processes Pro subscription
+            payments as merchant of record (checkout, receipts, renewals, taxes). When you
+            upgrade, Lemon Squeezy receives your email address and payment details; we
+            receive only a confirmation, the plan change and order/subscription identifiers.
+            Card details go to Lemon Squeezy, never to us.
           </li>
         </ul>
 

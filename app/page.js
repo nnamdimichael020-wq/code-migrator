@@ -1240,7 +1240,7 @@ export default function Home() {
               {auth.plan === "pro" ? "You're on Pro" : "Go Pro ($7)"}
             </button>
             <p className="mt-2 text-center text-[11px] text-slate-500">
-              Secure checkout by Stripe — $7/month, cancel any time via your receipt email.
+              Secure checkout by Lemon Squeezy — $7/month, cancel any time from your subscription email.
             </p>
           </div>
         </div>
@@ -1410,7 +1410,7 @@ export default function Home() {
               Go Pro ($7)
             </button>
             <p className="text-xs text-slate-500">
-              Secure $7/month subscription by Stripe. Cancel any time via your receipt email.
+              Secure $7/month subscription by Lemon Squeezy. Cancel any time from your subscription email.
             </p>
             <button
               onClick={() => setShowPaywall(false)}

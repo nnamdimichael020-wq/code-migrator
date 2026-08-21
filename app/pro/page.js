@@ -66,7 +66,7 @@ export default async function ProPage() {
               <h1 className="text-2xl font-extrabold text-white">Upgrade to Pro</h1>
               <p className="mt-3 text-sm text-slate-400">
                 Signed in as <span className="font-semibold text-slate-200">{email}</span>.
-                Pay securely with Stripe — your account flips to Pro the moment payment
+                Pay securely with Lemon Squeezy — your account flips to Pro the moment payment
                 completes.
               </p>
             </>
@@ -109,8 +109,8 @@ export default async function ProPage() {
             <div className="mt-6 flex flex-col items-center gap-3">
               <CheckoutButton />
               <p className="text-[11px] text-slate-500">
-                Secure payment by Stripe. Cancel any time by replying to your receipt email
-                or contacting us — you keep Pro until the period ends.
+                Secure payment by Lemon Squeezy. Cancel any time from the link in your
+                subscription email — you keep Pro until the period ends.
               </p>
               <div className="mt-1 flex items-center gap-4 text-xs">
                 <Link href="/" className="text-slate-400 hover:text-slate-200 transition">

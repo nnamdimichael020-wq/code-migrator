@@ -52,18 +52,21 @@ export default function TermsPage() {
 
         <h2 className={SECTION_TITLE}>3. Pro plan ($7/month subscription)</h2>
         <p className={PARAGRAPH}>
-          The Pro plan is a $7/month subscription purchased through Stripe Checkout. Pro
-          includes unlimited daily conversions and single scripts up to 500 lines. Payment is
-          taken by Stripe; we never see or store your card details.
+          The Pro plan is a $7/month subscription purchased through Lemon Squeezy checkout.
+          Lemon Squeezy is the merchant of record: it processes the payment, handles taxes,
+          emails your receipt and subscription management link, and we never see or store
+          your card details. Pro includes unlimited daily conversions and single scripts up
+          to 500 lines.
         </p>
         <p className={`mt-3 ${PARAGRAPH}`}>
           <span className="font-semibold text-slate-200">Signing in with Google does not create a
           paid subscription or charge you.</span> You are charged only when you explicitly
-          complete Stripe Checkout yourself. Your entitlement is applied to your account when
-          Stripe confirms the payment. If your subscription is cancelled, ends, or payment
-          fails, your account returns to the free plan at the end of the paid period. To cancel,
-          reply to your Stripe receipt email or contact us; you keep Pro until the period you
-          paid for ends. Refunds for unused periods are handled case by case — contact us.
+          complete Lemon Squeezy checkout yourself. Your entitlement is applied to your account
+          when Lemon Squeezy confirms the payment. If your subscription is cancelled, ends, or
+          payment fails, your account returns to the free plan at the end of the paid period.
+          To cancel, use the subscription management link in your Lemon Squeezy email, or
+          contact us; you keep Pro until the period you paid for ends. Refunds follow Lemon
+          Squeezy&apos;s policy and are handled case by case — contact us.
         </p>
 
         <h2 className={SECTION_TITLE}>4. Your responsibility for converted code</h2>

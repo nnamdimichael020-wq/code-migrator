@@ -37,7 +37,7 @@ export default function CheckoutButton() {
         className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-semibold px-6 py-2.5 rounded-lg transition flex items-center gap-2"
       >
         <Zap className="w-4 h-4" />
-        {busy ? "Opening Stripe…" : "Continue to payment — $7/month"}
+        {busy ? "Opening checkout…" : "Continue to payment — $7/month"}
       </button>
       {error && <p className="text-xs text-rose-400 max-w-sm text-center">{error}</p>}
     </div>

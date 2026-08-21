@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
+import { randomUUID } from "node:crypto";
 import { kvConfig } from "../../../../lib/kv.js";
 import { readSessionFromRequest, getUser } from "../../../../lib/auth.js";
-import { billingConfig, isBillingConfigured, createCheckoutSession } from "../../../../lib/billing.js";
+import {
+  billingConfig,
+  isBillingConfigured,
+  createLemonCheckout,
+  storeCheckoutMapping
+} from "../../../../lib/billing.js";
 
 export async function POST(request) {
   const headers = { "Cache-Control": "no-store, max-age=0" };
@@ -33,20 +39,31 @@ export async function POST(request) {
         return NextResponse.json({ alreadyPro: true, url: "/pro" }, { headers });
       }
     } catch {
-      // KV hiccup: Stripe metadata still maps the payer, so proceed.
+      // KV hiccup: the checkout still maps the payer via custom data.
     }
   }
 
+  const baseUrl = config.baseUrl || new URL(request.url).origin;
+  // Our own confirm token rides in the success redirect, so /pro/success can
+  // find its KV mapping regardless of what Lemon Squeezy appends to the URL.
+  const confirmToken = randomUUID();
+
   try {
-    const checkout = await createCheckoutSession({
-      secretKey: config.secretKey,
-      priceId: config.priceId,
-      baseUrl: config.baseUrl || new URL(request.url).origin,
+    const checkout = await createLemonCheckout({
+      apiKey: config.apiKey,
+      storeId: config.storeId,
+      variantId: config.variantId,
+      baseUrl,
       googleId: session.sub,
-      email: session.email || ""
+      email: session.email || "",
+      confirmToken
     });
-    if (!checkout?.url) {
-      throw new Error("Stripe did not return a checkout URL.");
+    if (kv) {
+      await storeCheckoutMapping(kv, confirmToken, {
+        lemonCheckoutId: checkout.id,
+        googleId: session.sub,
+        email: session.email || ""
+      });
     }
     return NextResponse.json({ url: checkout.url }, { headers });
   } catch (error) {
