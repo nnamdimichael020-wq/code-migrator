@@ -96,42 +96,89 @@ function isSqlConversion(sourceLang, targetLang) {
 // This is what makes the converter measurably better than generic tools on
 // schema-backed migrations.
 const SQL_SCHEMA_HEAD = [
-  "You are an expert SQL dialect migration engine specializing in high-accuracy",
-  "conversions. A table schema (DDL) accompanies this request: treat it as",
-  "authoritative ground truth and use it aggressively to maximize conversion",
-  "accuracy, correctness and idiomatic quality."
+  "You are an expert SQL dialect migration engine specializing in schema-backed",
+  "Oracle → PostgreSQL and cross-dialect conversions with very high accuracy.",
+  "A table schema (DDL) accompanies this request. Treat it as the",
+  "authoritative ground truth: the ONLY source of column names, types, precision,",
+  "scale and nullability. Whenever the DDL conflicts with general dialect",
+  "knowledge, the DDL wins."
+];
+// Deterministic Oracle → PostgreSQL type reference. Oracle is the highest-traffic
+// source dialect and the biggest source of NUMBER / VARCHAR2 / DATE, so the full
+// table lives here; other pairs apply the same principles via GENERAL_TYPE_RULES.
+const ORACLE_TO_POSTGRES_TYPES = [
+  "NUMBER(p, s)              → NUMERIC(p, s)        keep precision p and scale s exactly",
+  "NUMBER(p) / NUMBER(p, 0)  → SMALLINT | INTEGER | BIGINT | NUMERIC(p)   by p: 1-4 smallint, 5-9 integer, 10-18 bigint, >18 numeric(p)",
+  "NUMBER (no p, no s)       → NUMERIC               arbitrary precision — never INTEGER, never a float",
+  "VARCHAR2(n) / (n CHAR)    → VARCHAR(n)            keep the width",
+  "CHAR(n) / NCHAR(n)        → CHAR(n)",
+  "CLOB / LONG               → TEXT",
+  "BLOB / RAW(n)             → BYTEA",
+  "DATE                      → DATE                  Oracle DATE holds a time-of-day; use TIMESTAMP only when the code uses the time",
+  "TIMESTAMP(n)              → TIMESTAMP(n)",
+  "TIMESTAMP WITH TIME ZONE  → TIMESTAMPTZ",
+  "FLOAT / BINARY_FLOAT      → REAL",
+  "BINARY_DOUBLE             → DOUBLE PRECISION"
+];
+const GENERAL_TYPE_RULES = [
+  "Map each source type to its closest native target type. Carry precision and",
+  "scale through verbatim (NUMERIC(p,s), DECIMAL(p,s), VARCHAR(n)). Never drop a",
+  "declared width or scale, and never invent one the source did not have."
 ];
 const SCHEMA_CORE_SQL = [
-  "Mandatory schema (DDL) rules:",
+  "Step 0 — parse the DDL before converting. Build a column map of",
+  "  {table → {column → (type, precision, scale, nullable)}} from the provided",
+  "  DDL, then resolve EVERY column reference in the code against that map.",
+  "  Do not convert line-by-line first and check types afterwards.",
   "",
-  "1. Type awareness (critical). Map source types precisely using the DDL and",
-  "   never ignore precision or scale: NUMBER(p, s) → NUMERIC(p, s) or",
-  "   DECIMAL(p, s); NUMBER without scale → INTEGER or BIGINT when the usage",
-  "   fits, otherwise NUMERIC; VARCHAR2(n) → VARCHAR(n); CHAR(n) → CHAR(n);",
-  "   DATE → DATE or TIMESTAMP depending on how the column is actually used in",
-  "   the code. Carry nullability over exactly: a NOT NULL column stays NOT NULL.",
-  "2. Column and constraint intelligence. Only reference columns that exist in",
-  "   the provided schema; if the code uses a column the schema does not define,",
-  "   say so in `explanation` instead of guessing. Respect PRIMARY KEY, UNIQUE,",
-  "   NOT NULL and FOREIGN KEY constraints when rewriting logic, and prefer",
-  "   safer, more explicit constructs (COALESCE, IS NOT NULL guards) on nullable",
-  "   columns than on NOT NULL ones.",
-  "3. Function and expression rewriting, schema-aware. Choose the most accurate",
-  "   target-dialect equivalent based on the actual column types. When the",
-  "   target is PostgreSQL: prefer CURRENT_DATE over CURRENT_TIMESTAMP when the",
-  "   source column is DATE; use AGE() plus EXTRACT for year and month",
-  "   calculations; expand NVL / NVL2 / DECODE into the cleanest readable CASE",
-  "   (or COALESCE) form; and avoid casts that the target type already makes",
-  "   unnecessary.",
-  "4. Silent pitfall reduction. Re-check every pitfall against the schema and",
-  "   only emit warnings that are still relevant after that check — suppress or",
-  "   downgrade the ones the schema proves not applicable. Always keep critical",
-  "   behavioural differences: ROWNUM vs LIMIT ordering, empty string vs NULL,",
-  "   and time-zone handling.",
-  "5. Output requirements. `convertedCode` contains only the converted SQL — no",
-  "   commentary, no markdown fences. Keep proper formatting and indentation,",
-  "   and preserve aliases and logical structure unless a clearer idiomatic form",
-  "   exists."
+  "1. Types, precision and scale — use them, do not guess.",
+  "   - Carry precision and scale through verbatim. NUMBER(10,2) becomes",
+  "     NUMERIC(10,2), never a bare DECIMAL.",
+  "   - Choose integer widths from precision: a NUMBER(5) counter is INTEGER,",
+  "     never BIGINT; a NUMBER(20) key is BIGINT, never INTEGER.",
+  "   - An unconstrained NUMBER is NUMERIC (arbitrary precision), never a float",
+  "     and never INTEGER — that silently loses precision.",
+  "   - VARCHAR2(n) keeps its width: VARCHAR(n).",
+  "   - DATE maps to DATE; widen to TIMESTAMP only when the code reads or",
+  "     compares the time-of-day component.",
+  "",
+  "2. Nullability — mirror it exactly.",
+  "   - A NOT NULL column must never receive NULL in the output, and logic on it",
+  "     needs no defensive NULL handling.",
+  "   - A nullable column keeps its NULL semantics: add COALESCE / IS NULL /",
+  "     NULLIF only where the source logic itself tolerates NULL.",
+  "   - Do not add or remove NULL-handling in a way that changes which rows match.",
+  "",
+  "3. Function and expression rewrites, driven by the actual column type.",
+  "   - Remove redundant casts: TO_DATE / TO_CHAR on a column the DDL already",
+  "     declares DATE is dropped; a cast on NUMERIC stays only where arithmetic",
+  "     requires it.",
+  "   - Date functions follow the column type: DATE columns prefer CURRENT_DATE",
+  "     and plain date arithmetic; use CURRENT_TIMESTAMP / NOW() only when",
+  "     time-of-day matters.",
+  "   - NVL / NVL2 / DECODE expand to the cleanest CASE (or COALESCE) for the",
+  "     column's type: numeric columns COALESCE(col, 0), text columns",
+  "     COALESCE(col, '').",
+  "   - Preserve result types: arithmetic on NUMERIC(p,s) must yield NUMERIC with",
+  "     an appropriate scale, not a silently widened or truncated value.",
+  "",
+  "4. Silent-pitfall reduction — prove or drop every warning.",
+  "   - Re-check each candidate pitfall against the DDL and emit it ONLY if it",
+  "     can still occur in THIS conversion.",
+  "   - Examples of suppression: the empty-string-vs-NULL trap does not apply to",
+  "     a column the DDL declares NOT NULL; a time-zone warning does not apply to",
+  "     a DATE column used date-only.",
+  "   - Always keep genuine behavioural differences (ROWNUM vs LIMIT ordering,",
+  "     string concatenation with NULL, implicit vs explicit casts).",
+  "   - Every pitfall you DO emit must name the specific column or expression it",
+  "     concerns; never emit generic, unrelated warnings.",
+  "",
+  "5. Output.",
+  "   - `convertedCode` contains ONLY the converted SQL — no commentary, no",
+  "     markdown fences, clean indentation, aliases preserved.",
+  "   - `explanation` lists what changed and why, including any type, precision,",
+  "     scale or nullability decision the schema drove, and any column the code",
+  "     references that the DDL does not define."
 ];
 // Idiomatic style on top of a schema: readability and native form win over a
 // line-for-line mirror, while the schema keeps it honest.
@@ -162,9 +209,17 @@ function buildInstruction(style, ctx = {}) {
   const sections = [head, "", rules];
   if (ctx.sqlConversion) {
     if (ctx.hasSchema) {
+      sections.push("", SCHEMA_CORE_SQL);
+      if (ctx.sourceLang === "Oracle SQL" && ctx.targetLang === "PostgreSQL") {
+        sections.push(
+          "",
+          "Oracle → PostgreSQL type reference (follow it exactly):",
+          ORACLE_TO_POSTGRES_TYPES
+        );
+      } else {
+        sections.push("", GENERAL_TYPE_RULES);
+      }
       sections.push(
-        "",
-        SCHEMA_CORE_SQL,
         "",
         style === "literal" ? SCHEMA_LITERAL_SQL : SCHEMA_IDIOMATIC_SQL
       );
@@ -440,7 +495,7 @@ export async function POST(request) {
     }
     const requestBody = {
       store: false,
-      system_instruction: buildInstruction(conversionStyle, { sqlConversion, hasSchema }),
+      system_instruction: buildInstruction(conversionStyle, { sqlConversion, hasSchema, sourceLang, targetLang }),
       input:
         `Convert this code from ${sourceLang} to ${targetLang}.\n\nCode:\n${code}` +
         (schemaText
