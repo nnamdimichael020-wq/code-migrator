@@ -1146,7 +1146,8 @@ export default function Home() {
                   ))}
                 </ul>
                 <p className="text-[11px] text-slate-600 mt-2">
-                  These are common migration pitfalls, flagged by keyword. Always test converted
+                  Flagged against your paste, the model's own review and the dialect pair — when
+                  a schema is provided, warnings it disproves are dropped. Always test converted
                   code before shipping it.
                 </p>
               </div>
