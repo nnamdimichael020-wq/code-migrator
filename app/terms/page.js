@@ -50,20 +50,20 @@ export default function TermsPage() {
           <li>The free tier does not require an account. Signing in is optional and only offered at the Pro gate.</li>
         </ul>
 
-        <h2 className={SECTION_TITLE}>3. Pro plan (planned)</h2>
+        <h2 className={SECTION_TITLE}>3. Pro plan ($7/month subscription)</h2>
         <p className={PARAGRAPH}>
-          A Pro plan at $7/month is planned for higher or unlimited daily conversions, longer
-          scripts, and batch migration. At the time of writing, checkout is{" "}
-          <span className="font-semibold text-slate-200">not live</span> — the service is a free
-          public beta and no payment is taken.
+          The Pro plan is a $7/month subscription purchased through Stripe Checkout. Pro
+          includes unlimited daily conversions and single scripts up to 500 lines. Payment is
+          taken by Stripe; we never see or store your card details.
         </p>
         <p className={`mt-3 ${PARAGRAPH}`}>
           <span className="font-semibold text-slate-200">Signing in with Google does not create a
-          paid subscription.</span> It only identifies your account so a future Pro entitlement
-          can be attached to it. Pro features and billing may launch later; you will not be
-          charged until a checkout is explicitly completed and confirmed by you. If you sign in,
-          your account starts and remains on the free plan until that happens. You can sign out
-          at any time and keep using the free tier.
+          paid subscription or charge you.</span> You are charged only when you explicitly
+          complete Stripe Checkout yourself. Your entitlement is applied to your account when
+          Stripe confirms the payment. If your subscription is cancelled, ends, or payment
+          fails, your account returns to the free plan at the end of the paid period. To cancel,
+          reply to your Stripe receipt email or contact us; you keep Pro until the period you
+          paid for ends. Refunds for unused periods are handled case by case — contact us.
         </p>
 
         <h2 className={SECTION_TITLE}>4. Your responsibility for converted code</h2>

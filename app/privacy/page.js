@@ -130,10 +130,11 @@ export default function PrivacyPage() {
           Sign-in is optional and only appears at the Pro gate; you can use the converter, the
           guides, reviews and the free daily quota without an account. When you sign in with
           Google, we store your Google user ID, email address, optional display name, a plan
-          field (always &ldquo;free&rdquo; while billing is not live) and account timestamps in
-          Cloudflare&apos;s key-value store. New accounts always start on the free plan. We do not
-          receive or store your Google password, and we never set your plan to a paid state
-          automatically.
+          field (&ldquo;free&rdquo; or &ldquo;pro&rdquo;) and account timestamps in
+          Cloudflare&apos;s key-value store. New accounts always start on the free plan; the
+          plan only changes to &ldquo;pro&rdquo; when Stripe confirms a payment you completed.
+          For Pro accounts we also store the Stripe customer and subscription identifiers. We do
+          not receive or store your Google password.
         </p>
 
         <h2 className={SECTION_TITLE}>7. Third parties</h2>
@@ -157,10 +158,10 @@ export default function PrivacyPage() {
             provider) delivers feedback form submissions to the developer&apos;s inbox.
           </li>
           <li>
-            <span className={LIST_STRONG}>Payment provider (future).</span> If and when the Pro
-            plan&apos;s checkout goes live, payment processing will be handled by a payment
-            provider (such as Lemon Squeezy or Stripe) as the merchant of record. We will update
-            this policy at that point and will not store your card details.
+            <span className={LIST_STRONG}>Stripe</span> processes Pro subscription payments
+            (checkout, receipts, renewals). When you upgrade, Stripe receives your email
+            address and payment details; we receive only a confirmation, the plan change and
+            Stripe customer/subscription identifiers. Card details go to Stripe, never to us.
           </li>
         </ul>
 

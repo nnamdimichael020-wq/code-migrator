@@ -9,7 +9,7 @@
     "cf:build": "opennextjs-cloudflare build",
     "cf:preview": "opennextjs-cloudflare preview",
     "cf:deploy": "opennextjs-cloudflare deploy",
-    "test": "node --test lib/__tests__/*.test.mjs lib/_tests_/*.test.mjs"
+    "test": "node --test lib/__tests__/*.test.mjs"
   },
   "dependencies": {
     "lucide-react": "0.577.0",

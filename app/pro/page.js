@@ -4,7 +4,10 @@ import { cookies } from "next/headers";
 import { Check } from "lucide-react";
 import { kvConfig } from "../../lib/kv.js";
 import { authConfig, verifyToken, getUser, SESSION_COOKIE } from "../../lib/auth.js";
+import { isBillingConfigured } from "../../lib/billing.js";
+import { PRO_MAX_LINES } from "../../lib/limits.js";
 import SignOutButton from "./SignOutButton";
+import CheckoutButton from "./CheckoutButton";
 import SiteHeader from "../components/SiteHeader";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +23,7 @@ export default async function ProPage() {
   const raw = cookieStore.get(SESSION_COOKIE)?.value;
   let session = null;
   if (config.sessionSecret && raw) session = await verifyToken(raw, config.sessionSecret);
-  // The Pro placeholder is only reachable through the Go Pro flow.
+  // The Pro page is only reachable through the Go Pro flow.
   if (!session) redirect("/api/auth/google");
 
   // Fresh plan from the user record when KV is available.
@@ -36,10 +39,12 @@ export default async function ProPage() {
   }
 
   const email = session.email || "";
+  const checkoutReady = isBillingConfigured();
+  // Honest feature list — every line is enforced server-side.
   const features = [
     "Unlimited daily conversions",
-    "Longer scripts and multi-statement batches",
-    "Batch migration workflow"
+    `Single scripts up to ${PRO_MAX_LINES} lines (vs 200 on free)`,
+    "Every language pair, Diff, pitfall warnings and schema context"
   ];
 
   return (
@@ -51,18 +56,27 @@ export default async function ProPage() {
             <>
               <h1 className="text-2xl font-extrabold text-white">You&apos;re on Pro</h1>
               <p className="mt-3 text-sm text-slate-400">
-                Your account is marked as Pro. Billing isn&apos;t live yet, so nothing has been
-                charged.
+                Signed in as <span className="font-semibold text-slate-200">{email}</span>.
+                Your conversions are unlimited and single scripts up to {PRO_MAX_LINES} lines
+                convert without splitting.
+              </p>
+            </>
+          ) : checkoutReady ? (
+            <>
+              <h1 className="text-2xl font-extrabold text-white">Upgrade to Pro</h1>
+              <p className="mt-3 text-sm text-slate-400">
+                Signed in as <span className="font-semibold text-slate-200">{email}</span>.
+                Pay securely with Stripe — your account flips to Pro the moment payment
+                completes.
               </p>
             </>
           ) : (
             <>
-              <h1 className="text-2xl font-extrabold text-white">Pro checkout is coming soon</h1>
+              <h1 className="text-2xl font-extrabold text-white">Pro checkout is almost ready</h1>
               <p className="mt-3 text-sm text-slate-400">
-                You&apos;re signed in as{" "}
-                <span className="font-semibold text-slate-200">{email}</span>. We haven&apos;t
-                enabled billing yet — <span className="font-semibold text-slate-200">you won&apos;t
-                be charged</span>. Your free daily conversions still work.
+                Signed in as <span className="font-semibold text-slate-200">{email}</span>.
+                Checkout is being configured on the server right now — your free daily
+                conversions keep working in the meantime.
               </p>
             </>
           )}
@@ -81,21 +95,41 @@ export default async function ProPage() {
             </ul>
           </div>
 
-          <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
-            <Link
-              href="/"
-              className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-5 py-2 rounded-lg transition"
-            >
-              Back to converter
-            </Link>
-            <SignOutButton className="text-xs text-slate-400 hover:text-slate-200 transition px-3 py-2" />
-          </div>
-
-          <p className="mt-5 text-[11px] text-slate-500">
-            Signing in does not create a paid subscription. You&apos;ll only be charged when
-            checkout goes live and you explicitly complete a payment. Continue using the free
-            plan any time — 3 conversions a day, no account needed.
-          </p>
+          {plan === "pro" ? (
+            <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
+              <Link
+                href="/"
+                className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-5 py-2 rounded-lg transition"
+              >
+                Back to converter
+              </Link>
+              <SignOutButton className="text-xs text-slate-400 hover:text-slate-200 transition px-3 py-2" />
+            </div>
+          ) : checkoutReady ? (
+            <div className="mt-6 flex flex-col items-center gap-3">
+              <CheckoutButton />
+              <p className="text-[11px] text-slate-500">
+                Secure payment by Stripe. Cancel any time by replying to your receipt email
+                or contacting us — you keep Pro until the period ends.
+              </p>
+              <div className="mt-1 flex items-center gap-4 text-xs">
+                <Link href="/" className="text-slate-400 hover:text-slate-200 transition">
+                  Not now — back to the converter
+                </Link>
+                <SignOutButton className="text-slate-400 hover:text-slate-200 transition px-2 py-1" />
+              </div>
+            </div>
+          ) : (
+            <div className="mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
+              <Link
+                href="/"
+                className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-5 py-2 rounded-lg transition"
+              >
+                Back to converter
+              </Link>
+              <SignOutButton className="text-xs text-slate-400 hover:text-slate-200 transition px-3 py-2" />
+            </div>
+          )}
         </div>
       </main>
     </div>

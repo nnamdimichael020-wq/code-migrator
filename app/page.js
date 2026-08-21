@@ -10,7 +10,7 @@ import { groupExplanation } from "../lib/classify";
 import Link from "next/link";
 import { PAIRS } from "../lib/pairs";
 import { collectIssues, issuesSummary } from "../lib/issues";
-import { FREE_MAX_LINES, SIZE_LIMIT_CODE, inspectPaste } from "../lib/limits";
+import { FREE_MAX_LINES, PRO_MAX_LINES, SIZE_LIMIT_CODE, inspectPaste, limitsForPlan } from "../lib/limits";
 import {
   loadHistory, saveHistoryEntry, clearHistory, loadPrefs, savePrefs,
   withComments, asDiffText, downloadText, extensionFor
@@ -108,7 +108,7 @@ export default function Home() {
     return collapseUnchanged(allDiffRows, 2);
   }, [allDiffRows, onlyChanges]);
   const changeGroups = useMemo(() => groupExplanation(explanation), [explanation]);
-  const pasteInfo = useMemo(() => inspectPaste(inputCode), [inputCode]);
+  const pasteInfo = useMemo(() => inspectPaste(inputCode, auth.plan), [inputCode, auth.plan]);
   const flags = useMemo(
     () =>
       collectIssues({
@@ -117,9 +117,10 @@ export default function Home() {
         targetLang,
         inputCode: diffBase,
         outputCode,
-        modelPitfalls: pitfalls
+        modelPitfalls: pitfalls,
+        schemaText
       }),
-    [explanation, sourceLang, targetLang, diffBase, outputCode, pitfalls]
+    [explanation, sourceLang, targetLang, diffBase, outputCode, pitfalls, schemaText]
   );
   const turnstileBox = useRef(null);
   const turnstileId = useRef(null);
@@ -268,12 +269,12 @@ export default function Home() {
     const tgtLang = override?.targetLang ?? targetLang;
     const code = override?.inputCode ?? inputCode;
     if (!code.trim()) return;
-    if (inspectPaste(code).tooLong) {
+    if (inspectPaste(code, auth.plan).tooLong) {
       setPaywallReason("size");
       setShowPaywall(true);
       return;
     }
-    if (remaining === 0) {
+    if (remaining === 0 && auth.plan !== "pro") {
       setPaywallReason("limit");
       setShowPaywall(true);
       return;
@@ -508,9 +509,9 @@ export default function Home() {
     const onKeyDown = (event) => {
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
         event.preventDefault();
-        if (!loading && inputCode.trim() && remaining !== null && !inspectPaste(inputCode).tooLong) {
+        if (!loading && inputCode.trim() && remaining !== null && !inspectPaste(inputCode, auth.plan).tooLong) {
           handleConvert();
-        } else if (inspectPaste(inputCode).tooLong) {
+        } else if (inspectPaste(inputCode, auth.plan).tooLong) {
           setPaywallReason("size");
           setShowPaywall(true);
         }
@@ -540,15 +541,17 @@ export default function Home() {
           </nav>
           <div className="flex items-center gap-3 text-sm shrink-0 ml-auto">
             <span className="hidden sm:inline text-slate-400">
-              Free Daily Uses:{" "}
+              {auth.plan === "pro" ? "Conversions: " : "Free Daily Uses: "}
               <strong
                 className={
-                  remaining !== null && remaining <= 1
-                    ? "text-rose-400"
-                    : "text-indigo-400"
+                  auth.plan === "pro"
+                    ? "text-emerald-400"
+                    : remaining !== null && remaining <= 1
+                      ? "text-rose-400"
+                      : "text-indigo-400"
                 }
               >
-                {remainingLabel}
+                {auth.plan === "pro" ? "unlimited (Pro)" : remainingLabel}
               </strong>
             </span>
             {history.length > 0 && (
@@ -638,12 +641,21 @@ export default function Home() {
                 </button>
               </span>
             )}
-            <button
-              onClick={goPro}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition"
-            >
-              <Zap className="w-4 h-4" /> Go Pro ($7)
-            </button>
+            {auth.plan === "pro" ? (
+              <span
+                title="Pro subscription active"
+                className="flex items-center gap-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-medium px-3 py-1.5 rounded-lg text-sm"
+              >
+                <Zap className="w-4 h-4" /> Pro
+              </span>
+            ) : (
+              <button
+                onClick={goPro}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white font-medium px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition"
+              >
+                <Zap className="w-4 h-4" /> Go Pro ($7)
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -1060,8 +1072,9 @@ export default function Home() {
                 This looks like a longer script ({pasteInfo.lineCount} lines)
               </div>
               <p className="text-xs text-indigo-200/70 mt-0.5">
-                Free converts one snippet at a time, up to {FREE_MAX_LINES} lines.
-                Split it into smaller pieces, or wait for Pro — longer scripts are on that list.
+                {auth.plan === "pro"
+                  ? `Pro converts single scripts up to ${PRO_MAX_LINES} lines. Split this one into pieces.`
+                  : `Free converts one snippet at a time, up to ${FREE_MAX_LINES} lines. Split it into smaller pieces, or go Pro for scripts up to ${PRO_MAX_LINES} lines.`}
               </p>
             </div>
             <button
@@ -1145,7 +1158,8 @@ export default function Home() {
                   ))}
                 </ul>
                 <p className="text-[11px] text-slate-600 mt-2">
-                  These are common migration pitfalls, flagged by keyword. Always test converted
+                  Flagged against your paste, the model's own review and the dialect pair — when
+                  a schema is provided, warnings it disproves are dropped. Always test converted
                   code before shipping it.
                 </p>
               </div>
@@ -1212,21 +1226,21 @@ export default function Home() {
           <div className="rounded-xl border border-indigo-500/40 bg-indigo-500/5 p-5 flex flex-col">
             <h3 className="text-sm font-semibold text-white">Pro</h3>
             <div className="mt-1 text-2xl font-black text-white">$7 <span className="text-xs font-normal text-slate-400">/ month</span></div>
-            <p className="mt-1 text-xs text-slate-500">For longer migrations and batch work.</p>
+            <p className="mt-1 text-xs text-slate-500">For heavy migration days.</p>
             <ul className="mt-4 space-y-1.5 text-xs text-slate-300 flex-1">
               <li className="flex gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />Unlimited daily conversions</li>
-              <li className="flex gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />Longer scripts and multi-statement batches</li>
-              <li className="flex gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />Batch migration workflow</li>
+              <li className="flex gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />Single scripts up to {PRO_MAX_LINES} lines</li>
+              <li className="flex gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />Every language pair, Diff, pitfall warnings and schema context</li>
             </ul>
             <button
               type="button"
               onClick={goPro}
               className="mt-5 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold px-4 py-2 rounded-lg transition text-center"
             >
-              Go Pro ($7)
+              {auth.plan === "pro" ? "You're on Pro" : "Go Pro ($7)"}
             </button>
             <p className="mt-2 text-center text-[11px] text-slate-500">
-              Checkout is coming soon — free beta in the meantime.
+              Secure checkout by Stripe — $7/month, cancel any time via your receipt email.
             </p>
           </div>
         </div>
@@ -1236,7 +1250,7 @@ export default function Home() {
         <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
           {[
             ["What does CodeShift do?", "It migrates SQL and code between dialects and languages — Oracle to PostgreSQL, MySQL to Snowflake, Excel VBA to Python and more — with a line-by-line diff and warnings for differences that change behaviour without erroring."],
-            ["Is it free?", `Yes. ${DAILY_LIMIT} conversions per day are free, with no account and no credit card. A $7/month Pro plan is planned for higher limits and batch work.`],
+            ["Is it free?", `Yes. ${DAILY_LIMIT} conversions per day are free, with no account and no credit card. A $7/month Pro plan adds unlimited conversions and single scripts up to ${PRO_MAX_LINES} lines.`],
             ["Do I need an account?", "No. Free conversions work without signup. History and preferences are saved in your own browser."],
             ["How accurate is the conversion?", "Syntax conversion is reliable, but treat the output as a migration starting point: review the diff and the silent-pitfall warnings, then test the code in your environment."],
             ["What are silent pitfall warnings?", "Differences between languages that compile or run but change results — NULL handling, empty strings, ordering, row limits, timezone behaviour. CodeShift flags the ones that apply to your paste."],
@@ -1377,15 +1391,15 @@ export default function Home() {
             </h2>
             <p className="text-sm text-slate-400">
               {paywallReason === "size"
-                ? `Free converts one snippet up to ${FREE_MAX_LINES} lines. Split this paste, or wait for Pro for longer scripts.`
-                : `You have used your ${DAILY_LIMIT} free conversions for today on this network. Come back tomorrow, or wait for Pro checkout.`}
+                ? `Free converts one snippet up to ${FREE_MAX_LINES} lines. Split this paste, or go Pro for scripts up to ${PRO_MAX_LINES} lines.`
+                : `You have used your ${DAILY_LIMIT} free conversions for today on this network. Come back tomorrow, or go Pro for unlimited conversions.`}
             </p>
             <div className="bg-slate-800 p-4 rounded-xl text-left border border-slate-700">
               <div className="text-2xl font-black text-white">$7 <span className="text-xs font-normal text-slate-400">/ month</span></div>
               <ul className="text-xs text-slate-300 mt-2 space-y-1.5">
                 <li className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400" /> Unlimited daily conversions</li>
-                <li className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400" /> Longer scripts and multi-statement batches</li>
-                <li className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400" /> Batch migration workflow</li>
+                <li className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400" /> Single scripts up to {PRO_MAX_LINES} lines</li>
+                <li className="flex items-center gap-1.5"><Check className="w-3.5 h-3.5 text-emerald-400" /> Every language pair, Diff, pitfall warnings and schema context</li>
               </ul>
             </div>
             <button
@@ -1396,7 +1410,7 @@ export default function Home() {
               Go Pro ($7)
             </button>
             <p className="text-xs text-slate-500">
-              Free public beta — billing isn&apos;t live yet. Signing in won&apos;t charge you.
+              Secure $7/month subscription by Stripe. Cancel any time via your receipt email.
             </p>
             <button
               onClick={() => setShowPaywall(false)}

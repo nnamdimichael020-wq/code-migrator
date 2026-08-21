@@ -1,5 +1,13 @@
 import { NextResponse } from "next/server";
 import { inspectPaste, sizeLimitPayload } from "../../../lib/limits.js";
+import { readSessionFromRequest, getUser } from "../../../lib/auth.js";
+// The system prompt + input builder live in lib/prompt.js as a pure module so
+// the conversion contract is unit-tested instead of living inside the route.
+import {
+  buildSystemInstruction,
+  buildConversionInput,
+  isSqlConversion
+} from "../../../lib/prompt.js";
 const DAILY_LIMIT = 3;
 // Optional schema context (DDL) sent alongside the code. Capped well under
 // the free token budget so a giant CREATE script can't burn the quota.
@@ -19,162 +27,6 @@ const ALLOWED_LANGUAGES = [
   "Java",
   "PHP"
 ];
-// Shared preamble + closing rules. Only the middle section differs between the
-// two conversion styles, so the parts that must never drift live here once.
-const INSTRUCTION_HEAD = [
-  "You are an expert code and SQL migration engine.",
-  "Convert the code accurately and preserve observable behaviour."
-];
-// Applies to both styles. Correctness is not a mode the user can switch off:
-// even in "idiomatic" the model must refuse a rewrite that changes semantics.
-const INSTRUCTION_TAIL = [
-  "Correctness outranks style in both modes. If a rewrite would change behaviour —",
-  "NULL handling, ordering, error semantics, side effects, numeric precision —",
-  "keep the faithful version and say why in the explanation.",
-  "",
-  "In `explanation`, list only what matters: behaviour that changes between the",
-  "two languages, and any place you departed from the source's structure.",
-  "",
-  "Also return `pitfalls`: an array of silent behaviour differences that apply",
-  "to THIS conversion — things that compile or run but can change results",
-  "(NULL handling, ordering, empty-string semantics, integer division, 0- vs",
-  "1-based indexes). Empty array if none apply to the pasted code. Do not invent",
-  "generic warnings that are unrelated to this snippet."
-];
-// IDIOMATIC (default). The rule that matters most: translate into what a senior
-// engineer in the TARGET language would write, not a line-by-line mirror of the
-// source's control flow. A literal transliteration compiles and passes review,
-// but carries the source language's performance profile with it — VBA row loops
-// becoming df.iterrows() is the classic case.
-const IDIOMATIC_RULES = [
-  "Write idiomatic code for the TARGET language. Do not mirror the source's",
-  "control flow when the target has a native construct for the same job.",
-  "",
-  "- Python with pandas or numpy: do not emit df.iterrows(), df.itertuples() or",
-  "  index loops that append to parallel lists when the same result can be",
-  "  produced with vectorised column operations, boolean masks, np.where or",
-  "  np.select. Use .apply() only for logic that genuinely cannot be vectorised.",
-  "  Row-by-row iteration discards the C-level speed of the underlying arrays.",
-  "- SQL: use set-based statements, not cursors or row-at-a-time loops.",
-  "- JavaScript and TypeScript: prefer map, filter, reduce and async/await over",
-  "  manual index loops and nested callbacks where it reads more clearly."
-];
-// LITERAL. For reviewers migrating production code who need a line-for-line
-// audit trail against the original. Structure-preserving is the whole point —
-// so the anti-iterrows rule is deliberately absent here, and a row loop in the
-// source is expected to stay a row loop in the output.
-const LITERAL_RULES = [
-  "Translate as literally as the target language allows. Preserve the source's",
-  "structure so the result can be diffed line-for-line against the original.",
-  "",
-  "- Keep the same statement order, control flow and nesting depth.",
-  "- Keep loops as loops. Do not vectorise, do not collapse a loop into a set-based",
-  "  or functional expression, even where that would be faster or more idiomatic.",
-  "- Keep the source's variable, column and function names unless the target",
-  "  language forbids them.",
-  "- Do not merge, split or reorder statements, and do not add abstractions,",
-  "  helper functions or error handling that the source did not have.",
-  "",
-  "Use target-language syntax that actually compiles and runs — literal means",
-  "structure-preserving, not a broken transliteration."
-];
-// SQL dialects — the only languages where a pasted DDL changes how the
-// conversion itself must be done.
-const SQL_LANGUAGES = new Set([
-  "PostgreSQL",
-  "Oracle SQL",
-  "Snowflake SQL",
-  "Google BigQuery",
-  "MySQL"
-]);
-function isSqlConversion(sourceLang, targetLang) {
-  return SQL_LANGUAGES.has(sourceLang) || SQL_LANGUAGES.has(targetLang);
-}
-// Schema-aware SQL conversion. When a DDL accompanies the code it is
-// authoritative ground truth: real types, columns and constraints replace
-// every guess, and every pitfall must survive a check against the schema.
-// This is what makes the converter measurably better than generic tools on
-// schema-backed migrations.
-const SQL_SCHEMA_HEAD = [
-  "You are an expert SQL dialect migration engine specializing in high-accuracy",
-  "conversions. A table schema (DDL) accompanies this request: treat it as",
-  "authoritative ground truth and use it aggressively to maximize conversion",
-  "accuracy, correctness and idiomatic quality."
-];
-const SCHEMA_CORE_SQL = [
-  "Mandatory schema (DDL) rules:",
-  "",
-  "1. Type awareness (critical). Map source types precisely using the DDL and",
-  "   never ignore precision or scale: NUMBER(p, s) → NUMERIC(p, s) or",
-  "   DECIMAL(p, s); NUMBER without scale → INTEGER or BIGINT when the usage",
-  "   fits, otherwise NUMERIC; VARCHAR2(n) → VARCHAR(n); CHAR(n) → CHAR(n);",
-  "   DATE → DATE or TIMESTAMP depending on how the column is actually used in",
-  "   the code. Carry nullability over exactly: a NOT NULL column stays NOT NULL.",
-  "2. Column and constraint intelligence. Only reference columns that exist in",
-  "   the provided schema; if the code uses a column the schema does not define,",
-  "   say so in `explanation` instead of guessing. Respect PRIMARY KEY, UNIQUE,",
-  "   NOT NULL and FOREIGN KEY constraints when rewriting logic, and prefer",
-  "   safer, more explicit constructs (COALESCE, IS NOT NULL guards) on nullable",
-  "   columns than on NOT NULL ones.",
-  "3. Function and expression rewriting, schema-aware. Choose the most accurate",
-  "   target-dialect equivalent based on the actual column types. When the",
-  "   target is PostgreSQL: prefer CURRENT_DATE over CURRENT_TIMESTAMP when the",
-  "   source column is DATE; use AGE() plus EXTRACT for year and month",
-  "   calculations; expand NVL / NVL2 / DECODE into the cleanest readable CASE",
-  "   (or COALESCE) form; and avoid casts that the target type already makes",
-  "   unnecessary.",
-  "4. Silent pitfall reduction. Re-check every pitfall against the schema and",
-  "   only emit warnings that are still relevant after that check — suppress or",
-  "   downgrade the ones the schema proves not applicable. Always keep critical",
-  "   behavioural differences: ROWNUM vs LIMIT ordering, empty string vs NULL,",
-  "   and time-zone handling.",
-  "5. Output requirements. `convertedCode` contains only the converted SQL — no",
-  "   commentary, no markdown fences. Keep proper formatting and indentation,",
-  "   and preserve aliases and logical structure unless a clearer idiomatic form",
-  "   exists."
-];
-// Idiomatic style on top of a schema: readability and native form win over a
-// line-for-line mirror, while the schema keeps it honest.
-const SCHEMA_IDIOMATIC_SQL = [
-  "Idiomatic quality: produce clean, modern, native target-dialect SQL. Prefer",
-  "readability and correctness over a literal 1:1 translation, and keep the",
-  "output production-ready."
-];
-// Literal style on top of a schema: the structure stays line-for-line, but
-// the schema still owns every type and name decision.
-const SCHEMA_LITERAL_SQL = [
-  "Schema fidelity in literal mode: keep the line-for-line structure this mode",
-  "requires, but take every type, column name, constraint and nullability from",
-  "the schema — literal means structure-preserving, not guessed."
-];
-// SQL conversion with no DDL: best-effort, and visibly conservative about any
-// type it has to assume.
-const NO_SCHEMA_SQL_RULES = [
-  "No schema (DDL) was provided. Fall back to best-effort conversion using",
-  "general dialect knowledge and stay conservative with type assumptions: never",
-  "invent precision or scale, and note in `explanation` every place a type had",
-  "to be guessed."
-];
-function buildInstruction(style, ctx = {}) {
-  const rules = style === "literal" ? LITERAL_RULES : IDIOMATIC_RULES;
-  const schemaSql = Boolean(ctx.sqlConversion && ctx.hasSchema);
-  const head = schemaSql ? SQL_SCHEMA_HEAD : INSTRUCTION_HEAD;
-  const sections = [head, "", rules];
-  if (ctx.sqlConversion) {
-    if (ctx.hasSchema) {
-      sections.push(
-        "",
-        SCHEMA_CORE_SQL,
-        "",
-        style === "literal" ? SCHEMA_LITERAL_SQL : SCHEMA_IDIOMATIC_SQL
-      );
-    } else {
-      sections.push("", NO_SCHEMA_SQL_RULES);
-    }
-  }
-  sections.push("", INSTRUCTION_TAIL);
-  return sections.flat().join("\n");
-}
 const STYLES = ["idiomatic", "literal"];
 function utcDate() {
   return new Date().toISOString().slice(0, 10);
@@ -307,6 +159,19 @@ async function verifyTurnstile(token, ip) {
   }
   return { ok: true };
 }
+// Plan resolution for entitlement: read the signed session, then the STORED
+// user record. The cookie's plan field is not trusted for quota — only KV is.
+async function resolvePlan(request, kv) {
+  try {
+    const session = await readSessionFromRequest(request);
+    if (!session || !kv) return "free";
+    const user = await getUser(kv, session.sub);
+    return user?.plan === "pro" ? "pro" : "free";
+  } catch {
+    return "free";
+  }
+}
+
 function usagePayload(used) {
   const safeUsed = Math.max(0, used);
   return {
@@ -361,7 +226,11 @@ export async function GET(request) {
         visitor
       );
     }
-    return jsonWithUsage({ ...usagePayload(usage.used), configured: true }, visitor);
+    const plan = await resolvePlan(request, usage.config);
+    return jsonWithUsage(
+      { ...usagePayload(plan === "pro" ? 0 : usage.used), configured: true, plan },
+      visitor
+    );
   } catch (error) {
     return jsonWithUsage(
       { error: error?.message || "Could not read usage." },
@@ -402,10 +271,6 @@ export async function POST(request) {
     if (!human.ok) {
       return jsonWithUsage({ error: human.error }, visitor, 403);
     }
-    const paste = inspectPaste(code);
-    if (paste.tooLong) {
-      return jsonWithUsage(sizeLimitPayload(paste.lineCount), visitor, 400);
-    }
     const usage = await loadUsage(request, visitor.id);
     if (!usage.configured) {
       return jsonWithUsage(
@@ -417,11 +282,19 @@ export async function POST(request) {
         500
       );
     }
-    if (usage.used >= DAILY_LIMIT) {
+    // Entitlement comes from the stored user record — never from the cookie
+    // alone and never from the client. Fails closed to free tier.
+    const plan = await resolvePlan(request, usage.config);
+    const paste = inspectPaste(code, plan);
+    if (paste.tooLong) {
+      return jsonWithUsage(sizeLimitPayload(plan, paste.lineCount), visitor, 400);
+    }
+    if (plan !== "pro" && usage.used >= DAILY_LIMIT) {
       return jsonWithUsage(
         {
           error: "Daily free limit reached.",
-          ...usagePayload(usage.used)
+          ...usagePayload(usage.used),
+          plan
         },
         visitor,
         429
@@ -440,12 +313,13 @@ export async function POST(request) {
     }
     const requestBody = {
       store: false,
-      system_instruction: buildInstruction(conversionStyle, { sqlConversion, hasSchema }),
-      input:
-        `Convert this code from ${sourceLang} to ${targetLang}.\n\nCode:\n${code}` +
-        (schemaText
-          ? `\n\nTable schema (DDL) — authoritative ground truth: its types, columns, constraints and nullability override any assumption:\n${schemaText}`
-          : ""),
+      system_instruction: buildSystemInstruction({
+        sourceLang,
+        targetLang,
+        style: conversionStyle,
+        hasSchema
+      }),
+      input: buildConversionInput({ sourceLang, targetLang, code, schemaText }),
       response_format: {
         type: "text",
         mime_type: "application/json",
@@ -466,7 +340,9 @@ export async function POST(request) {
         }
       },
       generation_config: {
-        thinking_level: "low"
+        // Schema-backed SQL needs the model to actually cross-check every
+        // column against the DDL — worth one thinking notch over the default.
+        thinking_level: sqlConversion && hasSchema ? "medium" : "low"
       }
     };
     let lastError = "Gemini did not return a usable conversion.";
@@ -518,12 +394,23 @@ export async function POST(request) {
         lastError = "Gemini JSON was missing convertedCode.";
         continue;
       }
-      const used = await bumpUsage(usage);
+      // The contract asks the model for `pitfalls` — the silent differences
+      // that survived its schema check. Forward them: the UI merges them with
+      // the locally computed flags, so dropping them here would silently hide
+      // the schema-aware warnings the prompt works to produce.
+      const modelPitfalls = Array.isArray(parsed.pitfalls)
+        ? parsed.pitfalls.map((item) => String(item || "").trim()).filter(Boolean)
+        : [];
+      // Pro users are unlimited: no counter bump, so a later lapse back to
+      // free doesn't leave them with a maxed-out counter from their Pro days.
+      const used = plan === "pro" ? usage.used : await bumpUsage(usage);
       return jsonWithUsage(
         {
           convertedCode: parsed.convertedCode,
           explanation: Array.isArray(parsed.explanation) ? parsed.explanation : [],
-          ...usagePayload(used)
+          pitfalls: modelPitfalls,
+          ...usagePayload(plan === "pro" ? 0 : used),
+          plan
         },
         visitor
       );
