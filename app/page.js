@@ -117,9 +117,10 @@ export default function Home() {
         targetLang,
         inputCode: diffBase,
         outputCode,
-        modelPitfalls: pitfalls
+        modelPitfalls: pitfalls,
+        schemaText
       }),
-    [explanation, sourceLang, targetLang, diffBase, outputCode, pitfalls]
+    [explanation, sourceLang, targetLang, diffBase, outputCode, pitfalls, schemaText]
   );
   const turnstileBox = useRef(null);
   const turnstileId = useRef(null);
